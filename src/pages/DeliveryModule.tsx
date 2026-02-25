@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useId } from 'react'
 import { supabase } from '@/lib/supabase'
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -44,30 +44,51 @@ export default function DeliveryModule() {
   const [activeOrder, setActiveOrder] = useState<Order | null>(null)
   const [failReason, setFailReason] = useState('')
   const [showFailDialog, setShowFailDialog] = useState(false)
+  // Prevents auto-select from re-opening the modal right after a delivery/failed mutation
+  const disableAutoSelect = useRef(false)
 
   const queryClient = useQueryClient()
+  // Unique channel name per instance prevents collision when the component
+  // mounts/unmounts during the auth loading cycle on first login
+  const instanceId = useId()
+  const channelId = useRef(`delivery_orders_${instanceId.replace(/:/g, '')}`)
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['deliveryOrders'],
-    queryFn: fetchDeliveryOrders
+    queryFn: fetchDeliveryOrders,
+    // Polling fallback: if realtime misses an event (e.g. on first login),
+    // the list auto-refreshes every 8 seconds.
+    refetchInterval: 8000
   })
 
   // Auto-select first order if none active and we have orders
+  // Skip if a mutation just succeeded (disableAutoSelect flag)
   useEffect(() => {
+    if (disableAutoSelect.current) {
+      disableAutoSelect.current = false
+      return
+    }
     if (orders.length > 0 && !activeOrder) {
       setActiveOrder(orders[0])
     }
   }, [orders, activeOrder])
 
-  // In a real app, we would get the logged-in delivery user's ID
-  // and only fetch orders assigned to them with status = 'shipping'
+  // Realtime: listen for any order changes and refresh the list automatically.
+  // Uses a unique channel ID per instance to avoid name collisions during
+  // the auth loading → mount/unmount cycle that happens on first login.
   useEffect(() => {
+    const channelName = channelId.current
     const channel = supabase
-      .channel('delivery_channel')
+      .channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
         queryClient.invalidateQueries({ queryKey: ['deliveryOrders'] })
       })
-      .subscribe()
+      .subscribe((status, err) => {
+        if (err) console.error('Realtime subscription error:', err)
+        if (status === 'SUBSCRIBED') {
+          console.log(`Delivery realtime channel [${channelName}] subscribed`)
+        }
+      })
 
     return () => {
       supabase.removeChannel(channel)
@@ -91,6 +112,9 @@ export default function DeliveryModule() {
       if (error) throw new Error(error.message)
     },
     onSuccess: () => {
+      // Set flag BEFORE invalidating the query so the auto-select effect
+      // doesn't immediately re-open the drawer with the next order.
+      disableAutoSelect.current = true
       queryClient.invalidateQueries({ queryKey: ['deliveryOrders'] })
       setActiveOrder(null)
       setShowFailDialog(false)
