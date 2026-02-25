@@ -2,9 +2,19 @@ import { useState } from 'react'
 import { useFormik } from 'formik'
 import { supabase } from '@/lib/supabase'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, ShoppingBag, Plus, Minus, Tag, CheckCircle2, StickyNote } from 'lucide-react'
-import { parseLocationUrl } from '@/utils/locationParser'
+import {
+  MapPin,
+  ShoppingBag,
+  Plus,
+  Minus,
+  Tag,
+  CheckCircle2,
+  StickyNote,
+  XCircle
+} from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { useGoogleMaps } from '@/hooks/useGoogleMaps'
+import { extractCoordsFromUrl } from '@/utils/googleMapsParser'
 
 interface Product {
   id: string
@@ -23,6 +33,8 @@ export default function CreateOrder() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const { processShortUrl, loading: expandingCoords } = useGoogleMaps()
+
   const { data: products = [] } = useQuery({
     queryKey: ['products'],
     queryFn: fetchProducts
@@ -37,6 +49,40 @@ export default function CreateOrder() {
       is_paid: false,
       items: [] as { product_id: string; quantity: number; price: number; name: string }[]
     },
+    validate: (values) => {
+      const errors: Record<string, string> = {}
+
+      if (!values.address_text && !values.location_url) {
+        errors.address_text = 'Debes ingresar una dirección o un link de ubicación.'
+      }
+
+      if (values.address_text) {
+        const address = values.address_text.trim()
+        const hasLetters = /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(address)
+        const hasNumbers = /[0-9]/.test(address)
+        const isUrl =
+          /^(http|https):\/\//.test(address) || address.includes('www.') || address.includes('.com')
+
+        if (isUrl) {
+          errors.address_text = 'La dirección no puede ser un link. Usa el campo de abajo.'
+        } else if (!hasLetters || !hasNumbers) {
+          errors.address_text = 'La dirección debe incluir calle y número.'
+        }
+      }
+
+      if (values.location_url) {
+        const url = values.location_url.trim()
+        const startsWithHttp = /^https?:\/\//.test(url)
+        const isGoogleMapsShort = /^(https?:\/\/)(maps\.app\.goo\.gl|goo\.gl)\//.test(url)
+        const hasDirectCoords = extractCoordsFromUrl(url) !== null
+
+        if (!startsWithHttp || (!isGoogleMapsShort && !hasDirectCoords)) {
+          errors.location_url = 'Asegúrate de que sea un link de Maps válido (https://...)'
+        }
+      }
+
+      return errors
+    },
     onSubmit: async (values) => {
       if (values.items.length === 0) {
         setError('Debes agregar al menos un producto al pedido.')
@@ -46,7 +92,18 @@ export default function CreateOrder() {
       setError(null)
 
       try {
-        const coords = parseLocationUrl(values.location_url)
+        let coords = extractCoordsFromUrl(values.location_url)
+
+        // If not found in the URL, check if it's a short URL and expand it
+        if (!coords && values.location_url.includes('goo.gl')) {
+          coords = await processShortUrl(values.location_url)
+        }
+
+        // Si no tenemos coords y ademas el user escribio un link, tirar error fuerte
+        if (!coords && values.location_url.trim() !== '') {
+          throw new Error('No se pudieron extraer las coordenadas del link proporcionado.')
+        }
+
         const total_amount = values.items.reduce((sum, item) => sum + item.price * item.quantity, 0)
 
         // 1. Insert Order
@@ -157,6 +214,7 @@ export default function CreateOrder() {
               <input
                 name="customer_name"
                 onChange={formik.handleChange}
+                onBlur={formik.handleBlur}
                 value={formik.values.customer_name}
                 className="w-full bg-background-dark border border-border-dark text-white rounded-2xl px-4 py-3.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all placeholder:text-slate-600"
                 placeholder="Ej. Juan Pérez"
@@ -171,11 +229,17 @@ export default function CreateOrder() {
               <input
                 name="address_text"
                 onChange={formik.handleChange}
+                onBlur={formik.handleBlur}
                 value={formik.values.address_text}
-                className="w-full bg-background-dark border border-border-dark text-white rounded-2xl px-4 py-3.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all placeholder:text-slate-600"
+                className={`w-full bg-background-dark border text-white rounded-2xl px-4 py-3.5 focus:ring-1 outline-none transition-all placeholder:text-slate-600 ${formik.errors.address_text && formik.touched.address_text ? 'border-red-500/50 focus:ring-red-500 focus:border-red-500' : 'border-border-dark focus:ring-primary focus:border-primary'}`}
                 placeholder="Calle Falsa 123"
-                required
+                required={!formik.values.location_url}
               />
+              {formik.errors.address_text && formik.touched.address_text && (
+                <p className="text-xs text-red-500 mt-1.5 ml-1">
+                  {formik.errors.address_text as string}
+                </p>
+              )}
             </div>
 
             <div>
@@ -185,15 +249,23 @@ export default function CreateOrder() {
               <input
                 name="location_url"
                 onChange={formik.handleChange}
+                onBlur={formik.handleBlur}
                 value={formik.values.location_url}
-                className="w-full bg-background-dark border border-border-dark text-white rounded-2xl px-4 py-3.5 focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all placeholder:text-slate-600 font-mono text-sm"
+                className={`w-full bg-background-dark border text-white rounded-2xl px-4 py-3.5 focus:ring-1 outline-none transition-all placeholder:text-slate-600 font-mono text-sm ${formik.errors.location_url && formik.touched.location_url ? 'border-red-500/50 focus:ring-red-500 focus:border-red-500' : 'border-border-dark focus:ring-primary focus:border-primary'}`}
                 placeholder="https://maps.app.goo.gl/..."
               />
-              {parseLocationUrl(formik.values.location_url) && (
-                <p className="text-xs text-green-500 mt-2 ml-1 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> Coordenadas extraídas correctamente
+              {formik.errors.location_url && formik.touched.location_url ? (
+                <p className="text-xs text-red-500 mt-1.5 ml-1 flex items-center gap-1">
+                  <XCircle className="w-3 h-3" /> {formik.errors.location_url as string}
                 </p>
-              )}
+              ) : formik.values.location_url && !formik.errors.location_url ? (
+                <p className="text-xs text-green-500 mt-2 ml-1 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Link válido{' '}
+                  {formik.values.location_url.includes('goo.gl')
+                    ? '(se expandirá)'
+                    : '(coordenadas ok)'}
+                </p>
+              ) : null}
             </div>
           </section>
 
@@ -292,10 +364,10 @@ export default function CreateOrder() {
 
             <button
               type="submit"
-              disabled={loading || formik.values.items.length === 0}
+              disabled={loading || expandingCoords || formik.values.items.length === 0}
               className="w-full bg-primary hover:bg-orange-600 disabled:opacity-50 disabled:hover:bg-primary focus:ring-4 focus:ring-primary/20 text-white font-bold rounded-2xl py-4 transition-all flex items-center justify-center gap-2 group shadow-xl shadow-primary/20"
             >
-              {loading ? (
+              {loading || expandingCoords ? (
                 <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white"></div>
               ) : (
                 <>

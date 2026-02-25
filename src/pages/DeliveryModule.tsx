@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useId } from 'react'
 import { supabase } from '@/lib/supabase'
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, ChevronRight, MapPin, XCircle } from 'lucide-react'
+import { CheckCircle2, MapPin, XCircle, LocateFixed } from 'lucide-react'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 
@@ -24,12 +24,12 @@ interface Order {
   is_paid: boolean
 }
 
-// A simple component to re-center the map when order coordinates change
-function MapRecenter({ lat, lng }: { lat: number; lng: number }) {
+// A simple component to re-center the map when order coordinates change or when manually triggered
+function MapRecenter({ lat, lng, trigger }: { lat: number; lng: number; trigger: number }) {
   const map = useMap()
   useEffect(() => {
-    map.flyTo([lat, lng], 15)
-  }, [lat, lng, map])
+    map.flyTo([lat, lng], 15, { animate: true, duration: 1.5 })
+  }, [lat, lng, map, trigger])
   return null
 }
 
@@ -44,6 +44,7 @@ export default function DeliveryModule() {
   const [activeOrder, setActiveOrder] = useState<Order | null>(null)
   const [failReason, setFailReason] = useState('')
   const [showFailDialog, setShowFailDialog] = useState(false)
+  const [recenterTrigger, setRecenterTrigger] = useState(0)
   // Prevents auto-select from re-opening the modal right after a delivery/failed mutation
   const disableAutoSelect = useRef(false)
 
@@ -149,7 +150,7 @@ export default function DeliveryModule() {
           center={
             activeOrder?.lat && activeOrder?.lng
               ? [activeOrder.lat, activeOrder.lng]
-              : [-34.6, -58.38]
+              : [-27.0551, -65.3983] // Famaillá, Tucumán
           }
           zoom={13}
           style={{ height: '100%', width: '100%' }}
@@ -161,7 +162,7 @@ export default function DeliveryModule() {
           />
           {activeOrder?.lat && activeOrder?.lng && (
             <>
-              <MapRecenter lat={activeOrder.lat} lng={activeOrder.lng} />
+              <MapRecenter lat={activeOrder.lat} lng={activeOrder.lng} trigger={recenterTrigger} />
               <Marker position={[activeOrder.lat, activeOrder.lng]}>
                 <Popup className="custom-popup">
                   <strong className="text-slate-900 font-bold">{activeOrder.customer_name}</strong>{' '}
@@ -216,14 +217,12 @@ export default function DeliveryModule() {
 
             <div className="flex justify-between items-start mb-6">
               <div className="pr-4 border-r border-border-dark/50">
-                <h3 className="text-white font-black text-2xl tracking-tight leading-none mb-2">
+                <h3 className="text-white font-black text-2xl tracking-tight leading-none mb-3">
                   {activeOrder.customer_name}
                 </h3>
-                <p className="text-text-secondary text-sm flex items-start gap-1">
-                  <MapPin className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                  <span className="line-clamp-2">
-                    {activeOrder.address_text || 'Sin dirección específica'}
-                  </span>
+                <p className="text-slate-200 text-lg font-medium flex items-start gap-2 leading-tight pr-2">
+                  <MapPin className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                  <span>{activeOrder.address_text || 'Sin dirección específica'}</span>
                 </p>
               </div>
               <div className="flex flex-col items-end pl-4">
@@ -232,10 +231,14 @@ export default function DeliveryModule() {
                 >
                   {activeOrder.is_paid ? 'PAGADO' : 'A COBRAR'}
                 </span>
-                {/* Decorative element */}
-                <div className="w-8 h-8 rounded-full bg-background-dark border border-border-dark flex items-center justify-center mt-3 opacity-50">
-                  <ChevronRight className="w-4 h-4 text-text-secondary" />
-                </div>
+                {/* Map Recenter Button */}
+                <button
+                  onClick={() => setRecenterTrigger((prev) => prev + 1)}
+                  className="w-10 h-10 rounded-full bg-surface-dark border-2 border-primary/50 hover:border-primary bg-primary/10 hover:bg-primary/20 shadow-[0_0_15px_rgba(238,124,43,0.3)] hover:shadow-[0_0_20px_rgba(238,124,43,0.5)] flex items-center justify-center mt-3 transition-all duration-300 group cursor-pointer active:scale-95 animate-pulse"
+                  title="Volver a centrar en el pedido"
+                >
+                  <LocateFixed className="w-5 h-5 text-primary group-hover:text-white transition-colors" />
+                </button>
               </div>
             </div>
 
