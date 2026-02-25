@@ -1,0 +1,113 @@
+﻿
+> comandaflash@0.0.0 lint
+> eslint .
+
+
+C:\Users\Dario\Desktop\ComandaFlash\src\components\Layout.tsx
+  18:9  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Dario\Desktop\ComandaFlash\src\context\AuthContext.tsx
+  11:9   error  Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  25:36  error  Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  84:14  error  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Dario\Desktop\ComandaFlash\src\pages\Auth\Login.tsx
+  27:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Dario\Desktop\ComandaFlash\src\pages\CreateOrder.tsx
+  62:15  error  'orderItems' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Dario\Desktop\ComandaFlash\src\pages\DigitalComanda.tsx
+  125:10  error  Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\Dario\Desktop\ComandaFlash\src\pages\DigitalComanda.tsx:125:10
+  123 |       {/* Tabs */}
+  124 |       <div className="flex border-b border-border-dark w-full mb-6 shrink-0 pt-2">
+> 125 |         <TabButton id="pending" label="Pendientes" icon={Clock} />
+      |          ^^^^^^^^^ This component is created during render
+  126 |         <TabButton id="ready" label="Listos" icon={CheckCircle2} />
+  127 |         <TabButton id="history" label="Historial" icon={RotateCcw} />
+  128 |       </div>
+
+C:\Users\Dario\Desktop\ComandaFlash\src\pages\DigitalComanda.tsx:85:21
+   83 |   })
+   84 |
+>  85 |   const TabButton = ({
+      |                     ^^
+>  86 |     id,
+      | ^^^^^^^
+>  87 |     label,
+      ÔÇª
+      | ^^^^^^^
+> 107 |     </button>
+      | ^^^^^^^
+> 108 |   )
+      | ^^^^ The component is created during render here
+  109 |
+  110 |   return (
+  111 |     <div className="relative flex min-h-full w-full flex-col overflow-x-hidden p-4">  react-hooks/static-components
+  126:10  error  Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\Dario\Desktop\ComandaFlash\src\pages\DigitalComanda.tsx:126:10
+  124 |       <div className="flex border-b border-border-dark w-full mb-6 shrink-0 pt-2">
+  125 |         <TabButton id="pending" label="Pendientes" icon={Clock} />
+> 126 |         <TabButton id="ready" label="Listos" icon={CheckCircle2} />
+      |          ^^^^^^^^^ This component is created during render
+  127 |         <TabButton id="history" label="Historial" icon={RotateCcw} />
+  128 |       </div>
+  129 |
+
+C:\Users\Dario\Desktop\ComandaFlash\src\pages\DigitalComanda.tsx:85:21
+   83 |   })
+   84 |
+>  85 |   const TabButton = ({
+      |                     ^^
+>  86 |     id,
+      | ^^^^^^^
+>  87 |     label,
+      ÔÇª
+      | ^^^^^^^
+> 107 |     </button>
+      | ^^^^^^^
+> 108 |   )
+      | ^^^^ The component is created during render here
+  109 |
+  110 |   return (
+  111 |     <div className="relative flex min-h-full w-full flex-col overflow-x-hidden p-4">                     react-hooks/static-components
+  127:10  error  Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\Dario\Desktop\ComandaFlash\src\pages\DigitalComanda.tsx:127:10
+  125 |         <TabButton id="pending" label="Pendientes" icon={Clock} />
+  126 |         <TabButton id="ready" label="Listos" icon={CheckCircle2} />
+> 127 |         <TabButton id="history" label="Historial" icon={RotateCcw} />
+      |          ^^^^^^^^^ This component is created during render
+  128 |       </div>
+  129 |
+  130 |       {/* Main Content: Orders List */}
+
+C:\Users\Dario\Desktop\ComandaFlash\src\pages\DigitalComanda.tsx:85:21
+   83 |   })
+   84 |
+>  85 |   const TabButton = ({
+      |                     ^^
+>  86 |     id,
+      | ^^^^^^^
+>  87 |     label,
+      ÔÇª
+      | ^^^^^^^
+> 107 |     </button>
+      | ^^^^^^^
+> 108 |   )
+      | ^^^^ The component is created during render here
+  109 |
+  110 |   return (
+  111 |     <div className="relative flex min-h-full w-full flex-col overflow-x-hidden p-4">                                                                react-hooks/static-components
+
+Ô£û 9 problems (9 errors, 0 warnings)
+
