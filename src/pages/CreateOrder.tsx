@@ -10,7 +10,9 @@ import {
   Tag,
   CheckCircle2,
   StickyNote,
-  XCircle
+  XCircle,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useGoogleMaps } from '@/hooks/useGoogleMaps'
@@ -20,12 +22,28 @@ interface Product {
   id: string
   name: string
   price: number
+  category_id: string | null
+  stock: number | null
 }
 
-const fetchProducts = async (): Promise<Product[]> => {
-  const { data, error } = await supabase.from('products').select('*').eq('active', true)
-  if (error) throw new Error(error.message)
-  return data || []
+interface Category {
+  id: string
+  name: string
+}
+
+const fetchData = async (): Promise<{ products: Product[]; categories: Category[] }> => {
+  const [productsRes, categoriesRes] = await Promise.all([
+    supabase.from('products').select('*').eq('active', true).order('name'),
+    supabase.from('product_categories').select('*').order('name')
+  ])
+
+  if (productsRes.error) throw new Error(productsRes.error.message)
+  if (categoriesRes.error) throw new Error(categoriesRes.error.message)
+
+  return {
+    products: productsRes.data || [],
+    categories: categoriesRes.data || []
+  }
 }
 
 export default function CreateOrder() {
@@ -35,10 +53,24 @@ export default function CreateOrder() {
 
   const { processShortUrl, loading: expandingCoords } = useGoogleMaps()
 
-  const { data: products = [] } = useQuery({
-    queryKey: ['products'],
-    queryFn: fetchProducts
+  const { data, isLoading: loadingData } = useQuery({
+    queryKey: ['createOrderData'],
+    queryFn: fetchData
   })
+
+  const products = data?.products || []
+  const categories = data?.categories || []
+
+  // State to track which accordions are open
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
+
+  // Toggle accordion state
+  const toggleCategory = (categoryId: string) => {
+    setExpandedCategories((prev) => ({
+      ...prev,
+      [categoryId]: !prev[categoryId]
+    }))
+  }
 
   const formik = useFormik({
     initialValues: {
@@ -106,35 +138,26 @@ export default function CreateOrder() {
 
         const total_amount = values.items.reduce((sum, item) => sum + item.price * item.quantity, 0)
 
-        // 1. Insert Order
-        const { data: orderData, error: orderError } = await supabase
-          .from('orders')
-          .insert({
-            customer_name: values.customer_name,
-            address_text: values.address_text,
-            location_url: values.location_url,
-            lat: coords?.lat,
-            lng: coords?.lng,
-            is_paid: values.is_paid,
-            total_amount,
-            notes: values.notes || null,
-            status: 'pending'
-          })
-          .select()
-          .single()
+        // 1. Create Order using Atomic RPC (deducts stock)
+        const orderPayload = {
+          p_customer_name: values.customer_name,
+          p_address_text: values.address_text ? values.address_text : null,
+          p_location_url: values.location_url ? values.location_url : null,
+          p_lat: coords?.lat ?? null,
+          p_lng: coords?.lng ?? null,
+          p_is_paid: values.is_paid,
+          p_total_amount: total_amount,
+          p_notes: values.notes ? values.notes : null,
+          p_items: values.items.map((i) => ({
+            product_id: i.product_id,
+            quantity: i.quantity,
+            unit_price: i.price
+          }))
+        }
 
-        if (orderError) throw orderError
+        const { error: orderError } = await supabase.rpc('create_order_with_stock', orderPayload)
 
-        // 2. Insert Items into order_items table
-        const orderItems = values.items.map((i) => ({
-          order_id: orderData.id,
-          product_id: i.product_id,
-          quantity: i.quantity,
-          subtotal: i.price * i.quantity
-        }))
-
-        const { error: itemsError } = await supabase.from('order_items').insert(orderItems)
-        if (itemsError) throw itemsError
+        if (orderError) throw new Error(orderError.message || JSON.stringify(orderError))
 
         navigate('/comanda')
       } catch (err: unknown) {
@@ -152,6 +175,10 @@ export default function CreateOrder() {
   const handleItemToggle = (product: Product) => {
     const existing = formik.values.items.find((i) => i.product_id === product.id)
     if (existing) {
+      if (product.stock !== null && existing.quantity >= product.stock) {
+        // Limit reached
+        return
+      }
       formik.setFieldValue(
         'items',
         formik.values.items.map((i) =>
@@ -272,50 +299,100 @@ export default function CreateOrder() {
           {/* Product Selection */}
           <section className="bg-surface-dark p-5 rounded-3xl border border-border-dark space-y-4">
             <h2 className="text-sm font-bold text-text-secondary uppercase tracking-wider mb-2 flex items-center gap-2">
-              <Tag className="w-4 h-4" /> Productos
+              <Tag className="w-4 h-4" /> Productos ({getTotal()} $
+              {formik.values.items.reduce((s, i) => s + i.quantity, 0)} ítems)
             </h2>
 
-            {products.length === 0 ? (
-              <p className="text-sm text-text-muted text-center py-4">Cargando productos...</p>
+            {loadingData ? (
+              <p className="text-sm text-text-muted text-center py-4">Cargando menú...</p>
+            ) : products.length === 0 ? (
+              <p className="text-sm text-text-muted text-center py-4">
+                No hay productos disponibles.
+              </p>
             ) : (
-              <div className="grid gap-3">
-                {products.map((prod) => {
-                  const item = formik.values.items.find((i) => i.product_id === prod.id)
-                  const qty = item?.quantity || 0
+              <div className="grid gap-4">
+                {categories.map((cat) => {
+                  const catProducts = products.filter((p) => p.category_id === cat.id)
+                  if (catProducts.length === 0) return null
+
+                  // If there's only one category total, default to open. Otherwise rely on state.
+                  const isExpanded = categories.length === 1 ? true : !!expandedCategories[cat.id]
 
                   return (
                     <div
-                      key={prod.id}
-                      className={`flex items-center justify-between p-3.5 rounded-2xl border transition-colors ${qty > 0 ? 'bg-primary/10 border-primary/40' : 'bg-background-dark border-border-dark'}`}
+                      key={`ord-cat-${cat.id}`}
+                      className="border border-border-dark rounded-2xl overflow-hidden bg-background-dark"
                     >
-                      <div>
-                        <p className="font-semibold text-white text-sm">{prod.name}</p>
-                        <p className="text-text-secondary text-xs mt-0.5">${prod.price}</p>
-                      </div>
+                      {/* Accordion Header */}
+                      <button
+                        type="button"
+                        onClick={() => toggleCategory(cat.id)}
+                        className="w-full flex items-center justify-between p-4 bg-surface-dark/50 hover:bg-surface-dark transition-colors"
+                      >
+                        <span className="font-bold text-white text-base">{cat.name}</span>
+                        <span className="text-text-muted flex items-center gap-2 text-xs">
+                          {catProducts.length} productos
+                          {isExpanded ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </span>
+                      </button>
 
-                      <div className="flex items-center gap-3">
-                        {qty > 0 && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleItemRemove(prod.id)}
-                              className="w-8 h-8 rounded-full bg-surface-dark border border-border-dark flex items-center justify-center text-text-secondary hover:text-white"
-                            >
-                              <Minus className="w-4 h-4" />
-                            </button>
-                            <span className="font-black text-white w-5 text-center text-base">
-                              {qty}
-                            </span>
-                          </>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => handleItemToggle(prod)}
-                          className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${qty > 0 ? 'bg-primary text-white' : 'bg-surface-dark border border-border-dark text-text-secondary hover:text-white'}`}
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                      </div>
+                      {/* Accordion Body */}
+                      {isExpanded && (
+                        <div className="p-3 grid gap-2">
+                          {catProducts.map((prod) => {
+                            const item = formik.values.items.find((i) => i.product_id === prod.id)
+                            const qty = item?.quantity || 0
+
+                            return (
+                              <div
+                                key={prod.id}
+                                className={`flex items-center justify-between p-3.5 rounded-xl border transition-colors ${qty > 0 ? 'bg-primary/10 border-primary/40' : 'bg-background-dark border-border-dark hover:border-border-dark/80'}`}
+                              >
+                                <div>
+                                  <p className="font-semibold text-white text-sm">{prod.name}</p>
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    <p className="text-text-secondary text-xs">${prod.price}</p>
+                                    {prod.stock !== null && (
+                                      <span className="text-[10px] font-mono bg-background-dark border border-border-dark px-1.5 rounded text-text-muted">
+                                        Quedan: {prod.stock - qty}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                  {qty > 0 && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleItemRemove(prod.id)}
+                                        className="w-8 h-8 rounded-full bg-surface-dark border border-border-dark flex items-center justify-center text-text-secondary hover:text-white"
+                                      >
+                                        <Minus className="w-4 h-4" />
+                                      </button>
+                                      <span className="font-black text-white w-5 text-center text-base">
+                                        {qty}
+                                      </span>
+                                    </>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleItemToggle(prod)}
+                                    disabled={prod.stock !== null && qty >= prod.stock}
+                                    className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${qty > 0 ? 'bg-primary text-white' : 'bg-surface-dark border border-border-dark text-text-secondary hover:text-white'}`}
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
                   )
                 })}

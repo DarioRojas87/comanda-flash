@@ -33,6 +33,19 @@ function MapRecenter({ lat, lng, trigger }: { lat: number; lng: number; trigger:
   return null
 }
 
+const fetchDeliveryProfile = async () => {
+  const {
+    data: { session }
+  } = await supabase.auth.getSession()
+  const userId = session?.user?.id
+  if (!userId) return null
+
+  const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single()
+  // PGRST116 means zero rows returned (record not found). We don't want to throw an error for that.
+  if (error && error.code !== 'PGRST116') throw new Error(error.message)
+  return data
+}
+
 const fetchDeliveryOrders = async (): Promise<Order[]> => {
   // We assume any shipping order is assigned to us for this MVP demo
   const { data, error } = await supabase.from('orders').select('*').eq('status', 'shipping')
@@ -53,6 +66,11 @@ export default function DeliveryModule() {
   // mounts/unmounts during the auth loading cycle on first login
   const instanceId = useId()
   const channelId = useRef(`delivery_orders_${instanceId.replace(/:/g, '')}`)
+
+  const { data: deliveryProfile, isLoading: isProfileLoading } = useQuery({
+    queryKey: ['deliveryProfile'],
+    queryFn: fetchDeliveryProfile
+  })
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['deliveryOrders'],
@@ -146,33 +164,43 @@ export default function DeliveryModule() {
             </p>
           </div>
         )}
-        <MapContainer
-          center={
-            activeOrder?.lat && activeOrder?.lng
-              ? [activeOrder.lat, activeOrder.lng]
-              : [-27.0551, -65.3983] // Famaillá, Tucumán
-          }
-          zoom={13}
-          style={{ height: '100%', width: '100%' }}
-          zoomControl={false}
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          />
-          {activeOrder?.lat && activeOrder?.lng && (
-            <>
-              <MapRecenter lat={activeOrder.lat} lng={activeOrder.lng} trigger={recenterTrigger} />
-              <Marker position={[activeOrder.lat, activeOrder.lng]}>
-                <Popup className="custom-popup">
-                  <strong className="text-slate-900 font-bold">{activeOrder.customer_name}</strong>{' '}
-                  <br />
-                  <span className="text-xs text-slate-500">{activeOrder.address_text}</span>
-                </Popup>
-              </Marker>
-            </>
-          )}
-        </MapContainer>
+        {!isProfileLoading && (
+          <MapContainer
+            center={
+              activeOrder?.lat && activeOrder?.lng
+                ? [activeOrder.lat, activeOrder.lng]
+                : deliveryProfile?.current_lat && deliveryProfile?.current_lng
+                  ? [deliveryProfile.current_lat, deliveryProfile.current_lng]
+                  : [-27.0551, -65.3983] // Famaillá, Tucumán default fallback
+            }
+            zoom={13}
+            style={{ height: '100%', width: '100%' }}
+            zoomControl={false}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
+              url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            />
+            {activeOrder?.lat && activeOrder?.lng && (
+              <>
+                <MapRecenter
+                  lat={activeOrder.lat}
+                  lng={activeOrder.lng}
+                  trigger={recenterTrigger}
+                />
+                <Marker position={[activeOrder.lat, activeOrder.lng]}>
+                  <Popup className="custom-popup">
+                    <strong className="text-slate-900 font-bold">
+                      {activeOrder.customer_name}
+                    </strong>{' '}
+                    <br />
+                    <span className="text-xs text-slate-500">{activeOrder.address_text}</span>
+                  </Popup>
+                </Marker>
+              </>
+            )}
+          </MapContainer>
+        )}
       </div>
 
       {/* Floating UI Overlays */}
