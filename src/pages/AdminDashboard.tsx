@@ -753,7 +753,10 @@ export default function AdminDashboard() {
 
             <div className="md:col-span-2 flex items-center justify-end gap-3">
               <button
-                onClick={() => { setShowLogsModal(true); fetchLogs() }}
+                onClick={() => {
+                  setShowLogsModal(true)
+                  fetchLogs()
+                }}
                 className="bg-background-dark border border-border-dark hover:border-purple-500/50 text-white font-bold h-12 px-5 rounded-2xl shadow-lg flex items-center gap-2 transition-all cursor-pointer group"
               >
                 <ScrollText className="w-5 h-5 text-purple-400 group-hover:scale-110 transition-transform" />
@@ -814,20 +817,18 @@ export default function AdminDashboard() {
                     {categories.map((cat) => (
                       <li
                         key={cat.id}
-                        className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 group transition-colors"
+                        className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors"
                       >
                         <span className="text-slate-200 font-medium">{cat.name}</span>
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {cat.name !== 'General' && (
-                            <button
-                              onClick={() => handleDeleteCategory(cat.id, cat.name)}
-                              className="p-1.5 text-red-400 hover:bg-red-400/20 rounded-md"
-                              title="Eliminar"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
+                        {cat.name !== 'General' && (
+                          <button
+                            onClick={() => handleDeleteCategory(cat.id, cat.name)}
+                            className="p-1.5 text-red-400 bg-red-500/10 border border-red-500/30 hover:bg-red-500/25 rounded-lg transition-colors"
+                            title="Eliminar categoría"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -886,22 +887,46 @@ export default function AdminDashboard() {
                           {catProducts.map((prod) => (
                             <div
                               key={prod.id}
-                              className="flex flex-wrap items-center justify-between gap-3 p-3 bg-surface-dark border border-border-dark rounded-xl hover:bg-white/5 transition-colors group"
+                              className="flex flex-col gap-2 p-3 bg-surface-dark border border-border-dark rounded-xl hover:bg-white/5 transition-colors"
                             >
-                              <div className="flex flex-col min-w-[120px] flex-1">
-                                <span className="text-white font-bold leading-tight">
-                                  {prod.name}
-                                </span>
-                                <span className="text-primary font-mono text-sm">
-                                  ${prod.price}
-                                </span>
-                                {prod.stock !== null && (
-                                  <span className="text-sm font-mono bg-background-dark/50 border border-border-dark px-2.5 py-0.5 rounded-md text-text-muted mt-1 w-fit">
-                                    Stock: {prod.stock}
+                              {/* Top row: name + price + edit/delete */}
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex flex-col min-w-0 flex-1">
+                                  <span className="text-white font-bold leading-tight truncate">
+                                    {prod.name}
                                   </span>
-                                )}
+                                  <span className="text-primary font-mono text-sm">
+                                    ${prod.price}
+                                  </span>
+                                  {prod.stock !== null && (
+                                    <span className="text-xs font-mono bg-background-dark/50 border border-border-dark px-2 py-0.5 rounded-md text-text-muted mt-1 w-fit">
+                                      Stock: {prod.stock}
+                                    </span>
+                                  )}
+                                </div>
+                                {/* Edit + Delete buttons */}
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    onClick={() => openEditProduct(prod)}
+                                    className="p-1.5 text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 hover:bg-yellow-500/25 rounded-lg transition-colors"
+                                    title="Editar producto"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(`¿Eliminar "${prod.name}"?`))
+                                        handleDeleteProduct(prod.id, prod.name)
+                                    }}
+                                    className="p-1.5 text-red-400 bg-red-500/10 border border-red-500/30 hover:bg-red-500/25 rounded-lg transition-colors"
+                                    title="Eliminar producto"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
 
+                              {/* Bottom row: stock controls + status toggle */}
                               <div className="flex items-center gap-2">
                                 {/* Disable Stock Tracking Button */}
                                 {prod.stock !== null && (
@@ -958,23 +983,6 @@ export default function AdminDashboard() {
                                 >
                                   {prod.active ? 'Disponible' : 'Agotado'}
                                 </button>
-                                <button
-                                  onClick={() => openEditProduct(prod)}
-                                  className="p-2 text-text-muted hover:text-primary hover:bg-primary/20 rounded-md transition-colors"
-                                  title="Editar producto"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    if (confirm(`¿Eliminar "${prod.name}"?`))
-                                      handleDeleteProduct(prod.id, prod.name)
-                                  }}
-                                  className="p-2 text-text-muted hover:text-red-400 hover:bg-red-400/20 rounded-md transition-colors"
-                                  title="Eliminar producto"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
                               </div>
                             </div>
                           ))}
@@ -1004,12 +1012,23 @@ export default function AdminDashboard() {
             </div>
             <h2 className="text-xl font-black text-center text-white mb-2">Eliminar Categoría</h2>
             <p className="text-sm text-text-muted text-center mb-6 leading-relaxed">
-              Los productos de <span className="text-white font-bold">"{deletingCat.name}"</span> pasarán
-              automáticamente a la categoría <span className="text-primary font-bold">General</span>.
+              Los productos de <span className="text-white font-bold">"{deletingCat.name}"</span>{' '}
+              pasarán automáticamente a la categoría{' '}
+              <span className="text-primary font-bold">General</span>.
             </p>
             <div className="flex gap-3">
-              <button onClick={() => setDeletingCat(null)} className="flex-1 py-3 rounded-2xl bg-background-dark border border-border-dark text-text-muted font-bold hover:text-white transition-all text-sm">Cancelar</button>
-              <button onClick={confirmDeleteCategory} className="flex-1 py-3 rounded-2xl bg-red-500 hover:bg-red-600 text-white font-bold transition-all text-sm">Sí, eliminar</button>
+              <button
+                onClick={() => setDeletingCat(null)}
+                className="flex-1 py-3 rounded-2xl bg-background-dark border border-border-dark text-text-muted font-bold hover:text-white transition-all text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmDeleteCategory}
+                className="flex-1 py-3 rounded-2xl bg-red-500 hover:bg-red-600 text-white font-bold transition-all text-sm"
+              >
+                Sí, eliminar
+              </button>
             </div>
           </div>
         </div>
@@ -1022,21 +1041,65 @@ export default function AdminDashboard() {
             <div className="p-6 space-y-4">
               <div className="flex justify-between items-center">
                 <h2 className="text-xl font-black text-white">Nuevo Producto</h2>
-                <button onClick={() => setShowCreateProdModal(false)} className="w-8 h-8 rounded-full bg-background-dark flex items-center justify-center text-text-secondary hover:text-white"><X className="w-4 h-4" /></button>
+                <button
+                  onClick={() => setShowCreateProdModal(false)}
+                  className="w-8 h-8 rounded-full bg-background-dark flex items-center justify-center text-text-secondary hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
               <div className="space-y-3">
-                <input type="text" value={newProdName} onChange={(e) => setNewProdName(e.target.value)} placeholder="Nombre del producto *" className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary" />
+                <input
+                  type="text"
+                  value={newProdName}
+                  onChange={(e) => setNewProdName(e.target.value)}
+                  placeholder="Nombre del producto *"
+                  className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
+                />
                 <div className="grid grid-cols-2 gap-3">
-                  <input type="number" value={newProdPrice} onChange={(e) => setNewProdPrice(e.target.value)} placeholder="Precio *" min="0" step="0.01" className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary" />
-                  <input type="number" value={newProdStock} onChange={(e) => setNewProdStock(e.target.value)} placeholder="Stock (opcional)" min="0" className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary" />
+                  <input
+                    type="number"
+                    value={newProdPrice}
+                    onChange={(e) => setNewProdPrice(e.target.value)}
+                    placeholder="Precio *"
+                    min="0"
+                    step="0.01"
+                    className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
+                  />
+                  <input
+                    type="number"
+                    value={newProdStock}
+                    onChange={(e) => setNewProdStock(e.target.value)}
+                    placeholder="Stock (opcional)"
+                    min="0"
+                    className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
+                  />
                 </div>
-                <select value={newProdCategoryId} onChange={(e) => setNewProdCategoryId(e.target.value)} className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary">
+                <select
+                  value={newProdCategoryId}
+                  onChange={(e) => setNewProdCategoryId(e.target.value)}
+                  className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
+                >
                   <option value="">Seleccionar categoría *</option>
-                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
                 </select>
-                <textarea value={newProdIngredients} onChange={(e) => setNewProdIngredients(e.target.value)} placeholder="Ingredientes / descripción (opcional)" rows={2} className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary resize-none" />
+                <textarea
+                  value={newProdIngredients}
+                  onChange={(e) => setNewProdIngredients(e.target.value)}
+                  placeholder="Ingredientes / descripción (opcional)"
+                  rows={2}
+                  className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary resize-none"
+                />
               </div>
-              <button onClick={handleAddProduct} disabled={!newProdName.trim() || !newProdPrice || !newProdCategoryId} className="w-full py-3.5 bg-primary hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-2">
+              <button
+                onClick={handleAddProduct}
+                disabled={!newProdName.trim() || !newProdPrice || !newProdCategoryId}
+                className="w-full py-3.5 bg-primary hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-2"
+              >
                 <Plus className="w-4 h-4" /> Crear Producto
               </button>
             </div>
@@ -1051,28 +1114,113 @@ export default function AdminDashboard() {
             <div className="p-6 space-y-4">
               <div className="flex justify-between items-center">
                 <h2 className="text-xl font-black text-white">Editar Producto</h2>
-                <button onClick={() => setEditingProduct(null)} className="w-8 h-8 rounded-full bg-background-dark flex items-center justify-center text-text-secondary hover:text-white"><X className="w-4 h-4" /></button>
+                <button
+                  onClick={() => setEditingProduct(null)}
+                  className="w-8 h-8 rounded-full bg-background-dark flex items-center justify-center text-text-secondary hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
               <div className="space-y-3">
-                <input type="text" value={editProdName} onChange={(e) => setEditProdName(e.target.value)} placeholder="Nombre del producto" className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary" />
-                <div className="grid grid-cols-2 gap-3">
-                  <input type="number" value={editProdPrice} onChange={(e) => setEditProdPrice(e.target.value)} placeholder="Precio" min="0" step="0.01" className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary" />
-                  <input type="number" value={editProdStock} onChange={(e) => setEditProdStock(e.target.value)} placeholder="Stock (vacío = sin límite)" min="0" className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary" />
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
+                    Nombre
+                  </label>
+                  <input
+                    type="text"
+                    value={editProdName}
+                    onChange={(e) => setEditProdName(e.target.value)}
+                    placeholder="Nombre del producto"
+                    className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
+                  />
                 </div>
-                <select value={editProdCategoryId} onChange={(e) => setEditProdCategoryId(e.target.value)} className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary">
-                  <option value="">Sin categoría</option>
-                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-                <textarea value={editProdIngredients} onChange={(e) => setEditProdIngredients(e.target.value)} placeholder="Ingredientes / descripción" rows={2} className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary resize-none" />
-                <button onClick={() => setEditProdActive((v) => !v)} className={`w-full py-2.5 rounded-2xl text-sm font-bold transition-all border ${editProdActive ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-red-500/20 border-red-500/30 text-red-400'}`}>
-                  {editProdActive ? '✓ Disponible' : '✗ Agotado'} — toca para cambiar
-                </button>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
+                      Precio ($)
+                    </label>
+                    <input
+                      type="number"
+                      value={editProdPrice}
+                      onChange={(e) => setEditProdPrice(e.target.value)}
+                      placeholder="0.00"
+                      min="0"
+                      step="0.01"
+                      className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
+                      Stock <span className="normal-case font-normal">(vacío = sin límite)</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={editProdStock}
+                      onChange={(e) => setEditProdStock(e.target.value)}
+                      placeholder="—"
+                      min="0"
+                      className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
+                    Categoría
+                  </label>
+                  <select
+                    value={editProdCategoryId}
+                    onChange={(e) => setEditProdCategoryId(e.target.value)}
+                    className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
+                  >
+                    <option value="">Sin categoría</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
+                    Ingredientes / Descripción
+                  </label>
+                  <textarea
+                    value={editProdIngredients}
+                    onChange={(e) => setEditProdIngredients(e.target.value)}
+                    placeholder="Opcional..."
+                    rows={2}
+                    className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary resize-none"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
+                    Disponibilidad
+                  </label>
+                  <button
+                    onClick={() => setEditProdActive((v) => !v)}
+                    className={`w-full py-2.5 rounded-2xl text-sm font-bold transition-all border ${editProdActive ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-red-500/20 border-red-500/30 text-red-400'}`}
+                  >
+                    {editProdActive ? '✓ Disponible' : '✗ Agotado'} — toca para cambiar
+                  </button>
+                </div>
               </div>
               <div className="flex gap-3 pt-2">
-                <button onClick={() => { if (confirm(`¿Eliminar "${editingProduct.name}" permanentemente?`)) handleDeleteProduct(editingProduct.id, editingProduct.name) }} className="py-3 px-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 font-bold hover:bg-red-500/20 transition-all">
+                <button
+                  onClick={() => {
+                    if (confirm(`¿Eliminar "${editingProduct.name}" permanentemente?`))
+                      handleDeleteProduct(editingProduct.id, editingProduct.name)
+                  }}
+                  className="py-3 px-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 font-bold hover:bg-red-500/20 transition-all"
+                >
                   <Trash2 className="w-4 h-4" />
                 </button>
-                <button onClick={handleEditProduct} disabled={!editProdName.trim() || !editProdPrice} className="flex-1 py-3 bg-primary hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-2xl transition-all text-sm">Guardar Cambios</button>
+                <button
+                  onClick={handleEditProduct}
+                  disabled={!editProdName.trim() || !editProdPrice}
+                  className="flex-1 py-3 bg-primary hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-2xl transition-all text-sm"
+                >
+                  Guardar Cambios
+                </button>
               </div>
             </div>
           </div>
@@ -1085,19 +1233,33 @@ export default function AdminDashboard() {
           <div className="bg-surface-dark w-full max-w-lg rounded-3xl shadow-2xl border border-border-dark flex flex-col max-h-[85vh]">
             <div className="flex justify-between items-center p-6 border-b border-border-dark shrink-0">
               <div>
-                <h2 className="text-xl font-black text-white flex items-center gap-2"><ScrollText className="w-5 h-5 text-purple-400" /> Logs de Actividad</h2>
+                <h2 className="text-xl font-black text-white flex items-center gap-2">
+                  <ScrollText className="w-5 h-5 text-purple-400" /> Logs de Actividad
+                </h2>
                 <p className="text-xs text-text-muted mt-0.5">Últimas 2 semanas</p>
               </div>
-              <button onClick={() => setShowLogsModal(false)} className="w-8 h-8 rounded-full bg-background-dark flex items-center justify-center text-text-secondary hover:text-white"><X className="w-4 h-4" /></button>
+              <button
+                onClick={() => setShowLogsModal(false)}
+                className="w-8 h-8 rounded-full bg-background-dark flex items-center justify-center text-text-secondary hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {logsLoading ? (
-                <div className="flex justify-center py-10"><div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-400" /></div>
+                <div className="flex justify-center py-10">
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-400" />
+                </div>
               ) : logs.length === 0 ? (
-                <p className="text-sm text-text-muted text-center py-10">No hay actividad registrada.</p>
+                <p className="text-sm text-text-muted text-center py-10">
+                  No hay actividad registrada.
+                </p>
               ) : (
                 logs.map((log) => (
-                  <div key={log.id} className="flex gap-3 p-3 bg-background-dark/60 border border-border-dark rounded-xl">
+                  <div
+                    key={log.id}
+                    className="flex gap-3 p-3 bg-background-dark/60 border border-border-dark rounded-xl"
+                  >
                     <div className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0 text-xs font-black text-purple-400">
                       {log.user_name.charAt(0).toUpperCase()}
                     </div>
@@ -1106,7 +1268,13 @@ export default function AdminDashboard() {
                       <p className="text-text-muted text-xs mt-0.5">
                         <span className="text-primary font-bold">{log.user_name}</span>
                         {' · '}
-                        {new Date(log.created_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        {new Date(log.created_at).toLocaleString('es-AR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
                       </p>
                     </div>
                   </div>
