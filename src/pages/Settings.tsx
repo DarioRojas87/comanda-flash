@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/context/AuthContext'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Settings, UserPlus, Trash2, Bike, ClipboardList, X, Eye, EyeOff } from 'lucide-react'
 
@@ -22,11 +23,26 @@ const fetchProfiles = async (): Promise<Profile[]> => {
 const EMPTY_FORM = { full_name: '', email: '', password: '', role: 'staff' as 'staff' | 'delivery' }
 
 export default function SettingsPage() {
+  const { profile: currentProfile } = useAuth()
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
+
+  const insertAuditLog = async (action: string, entityType: 'product' | 'category' | 'user') => {
+    if (!currentProfile) return
+    try {
+      await supabase.from('audit_logs').insert({
+        user_id: currentProfile.id,
+        user_name: currentProfile.full_name,
+        action,
+        entity_type: entityType
+      })
+    } catch {
+      // Non-critical
+    }
+  }
 
   const resetAndClose = () => {
     setForm(EMPTY_FORM)
@@ -76,6 +92,7 @@ export default function SettingsPage() {
       if (profileError) throw profileError
     },
     onSuccess: () => {
+      insertAuditLog(`Creó usuario "${form.full_name}" con rol "${form.role}"`, 'user')
       queryClient.invalidateQueries({ queryKey: ['settingsProfiles'] })
       resetAndClose()
     },
@@ -86,10 +103,16 @@ export default function SettingsPage() {
 
   const deleteUserMutation = useMutation({
     mutationFn: async (userId: string) => {
+      // First, clear any orders that reference this user as their delivery driver.
+      // Without this step, the FK on orders.delivery_id would block the profile deletion (409 Conflict).
+      await supabase.from('orders').update({ delivery_id: null }).eq('delivery_id', userId)
+
       const { error } = await supabase.from('profiles').delete().eq('id', userId)
       if (error) throw error
     },
-    onSuccess: () => {
+    onSuccess: (_data, userId) => {
+      const deleted = profiles.find((p) => p.id === userId)
+      if (deleted) insertAuditLog(`Eliminó usuario "${deleted.full_name}" (${deleted.role})`, 'user')
       queryClient.invalidateQueries({ queryKey: ['settingsProfiles'] })
     }
   })

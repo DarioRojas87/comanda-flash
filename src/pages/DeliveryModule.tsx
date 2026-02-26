@@ -47,8 +47,18 @@ const fetchDeliveryProfile = async () => {
 }
 
 const fetchDeliveryOrders = async (): Promise<Order[]> => {
-  // We assume any shipping order is assigned to us for this MVP demo
-  const { data, error } = await supabase.from('orders').select('*').eq('status', 'shipping')
+  const {
+    data: { session }
+  } = await supabase.auth.getSession()
+  const userId = session?.user?.id
+  if (!userId) return []
+
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('status', 'shipping')
+    .eq('delivery_id', userId)
+
   if (error) throw new Error(error.message)
   return data || []
 }
@@ -113,6 +123,42 @@ export default function DeliveryModule() {
       supabase.removeChannel(channel)
     }
   }, [queryClient])
+
+  // GPS Tracking: send current position to Supabase every 5 seconds
+  // so the admin can see the delivery driver's live location on the map.
+  useEffect(() => {
+    if (!navigator.geolocation) return
+
+    let watchId: number
+
+    const startTracking = async () => {
+      const {
+        data: { session }
+      } = await supabase.auth.getSession()
+      const userId = session?.user?.id
+      if (!userId) return
+
+      watchId = navigator.geolocation.watchPosition(
+        async (pos) => {
+          await supabase
+            .from('profiles')
+            .update({
+              current_lat: pos.coords.latitude,
+              current_lng: pos.coords.longitude
+            })
+            .eq('id', userId)
+        },
+        (err) => console.warn('GPS error:', err.message),
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+      )
+    }
+
+    startTracking()
+
+    return () => {
+      if (watchId !== undefined) navigator.geolocation.clearWatch(watchId)
+    }
+  }, [])
 
   const mutation = useMutation({
     mutationFn: async ({

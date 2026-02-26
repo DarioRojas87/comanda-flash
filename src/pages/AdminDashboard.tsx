@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/context/AuthContext'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -12,6 +13,9 @@ import {
   Coffee,
   Plus,
   Trash2,
+  Pencil,
+  X,
+  ScrollText,
   ChevronUp,
   ChevronDown
 } from 'lucide-react'
@@ -28,26 +32,54 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png'
 })
 
-// Custom icons
-const houseIcon = new L.Icon({
-  iconUrl:
-    'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-})
+// Delivery color palette — one color per driver, assigned by array index
+const DELIVERY_COLORS = [
+  '#f97316',
+  '#3b82f6',
+  '#22c55e',
+  '#a855f7',
+  '#ef4444',
+  '#eab308',
+  '#ec4899'
+]
 
-const deliveryIcon = new L.Icon({
-  iconUrl:
-    'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-})
+// Colored circular SVG icon for a delivery driver
+const createDriverIcon = (color: string) =>
+  new L.DivIcon({
+    className: '',
+    html: `<div style="
+      width:32px;height:32px;
+      background:${color};
+      border:3px solid white;
+      border-radius:50%;
+      box-shadow:0 2px 8px rgba(0,0,0,0.35);
+      display:flex;align-items:center;justify-content:center;
+    ">
+      <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'>
+        <circle cx='18.5' cy='17.5' r='3.5'/><circle cx='5.5' cy='17.5' r='3.5'/>
+        <path d='M15 6a1 1 0 0 0 0-2h-1l-5 5H1m18.5 0H15'/>
+        <path d='m6 17 3-9h5.5l2 5 2 4'/>
+      </svg>
+    </div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    popupAnchor: [0, -18]
+  })
+
+// Colored teardrop pin icon for an order destination
+const createDestIcon = (color: string) =>
+  new L.DivIcon({
+    className: '',
+    html: `<div style="position:relative;width:26px;height:38px;">
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 38' width='26' height='38'>
+        <path d='M13 0C6 0 0 6 0 13c0 9.5 13 25 13 25S26 22.5 26 13C26 6 20 0 13 0z' fill='${color}' stroke='white' stroke-width='1.5'/>
+        <circle cx='13' cy='13' r='5' fill='white' opacity='0.9'/>
+      </svg>
+    </div>`,
+    iconSize: [26, 38],
+    iconAnchor: [13, 38],
+    popupAnchor: [0, -40]
+  })
 
 interface Order {
   id: string
@@ -86,6 +118,14 @@ export interface Product {
   stock: number | null
 }
 
+interface AuditLog {
+  id: string
+  user_name: string
+  action: string
+  entity_type: string
+  created_at: string
+}
+
 const fetchAdminData = async () => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -122,6 +162,7 @@ const fetchAdminData = async () => {
 }
 
 export default function AdminDashboard() {
+  const { profile: currentProfile } = useAuth()
   const [activeTab, setActiveTab] = useState<'map' | 'menu'>('map')
   const [cashCloseMode, setCashCloseMode] = useState(false)
   const [cashSummary, setCashSummary] = useState({ totalSales: 0, totalLosses: 0 })
@@ -132,15 +173,32 @@ export default function AdminDashboard() {
     queryFn: fetchAdminData
   })
 
-  // State for forms
+  // Category form state
   const [newCatName, setNewCatName] = useState('')
   const [isAddingCat, setIsAddingCat] = useState(false)
+  const [deletingCat, setDeletingCat] = useState<{ id: string; name: string } | null>(null)
 
+  // Create product modal state
+  const [showCreateProdModal, setShowCreateProdModal] = useState(false)
   const [newProdName, setNewProdName] = useState('')
   const [newProdPrice, setNewProdPrice] = useState('')
   const [newProdStock, setNewProdStock] = useState('')
   const [newProdCategoryId, setNewProdCategoryId] = useState('')
-  const [isAddingProd, setIsAddingProd] = useState(false)
+  const [newProdIngredients, setNewProdIngredients] = useState('')
+
+  // Edit product modal state
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const [editProdName, setEditProdName] = useState('')
+  const [editProdPrice, setEditProdPrice] = useState('')
+  const [editProdStock, setEditProdStock] = useState('')
+  const [editProdCategoryId, setEditProdCategoryId] = useState('')
+  const [editProdIngredients, setEditProdIngredients] = useState('')
+  const [editProdActive, setEditProdActive] = useState(true)
+
+  // Audit logs modal state
+  const [showLogsModal, setShowLogsModal] = useState(false)
+  const [logs, setLogs] = useState<AuditLog[]>([])
+  const [logsLoading, setLogsLoading] = useState(false)
 
   // Accordion state for product categories
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({})
@@ -190,6 +248,21 @@ export default function AdminDashboard() {
     }
   }, [queryClient])
 
+  // Audit log helper
+  const insertAuditLog = async (action: string, entityType: 'product' | 'category' | 'user') => {
+    if (!currentProfile) return
+    try {
+      await supabase.from('audit_logs').insert({
+        user_id: currentProfile.id,
+        user_name: currentProfile.full_name,
+        action,
+        entity_type: entityType
+      })
+    } catch {
+      // Non-critical: don't block UX if logging fails
+    }
+  }
+
   // Category Management Handlers
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return
@@ -198,33 +271,32 @@ export default function AdminDashboard() {
       .insert([{ name: newCatName.trim() }])
     if (error) alert('Error al crear categoría: ' + error.message)
     else {
+      await insertAuditLog(`Creó la categoría "${newCatName.trim()}"`, 'category')
       setNewCatName('')
       setIsAddingCat(false)
       refetch()
     }
   }
 
-  const handleDeleteCategory = async (id: string, name: string) => {
-    if (name === 'General') {
-      alert('La categoría General no puede ser eliminada.')
-      return
-    }
-    if (
-      !confirm(
-        `¿Estás seguro de eliminar la categoría "${name}"? Los productos volverán a 'General'.`
-      )
-    )
-      return
+  const handleDeleteCategory = (id: string, name: string) => {
+    if (name === 'General') return
+    setDeletingCat({ id, name })
+  }
 
-    // Fallback products to 'General' category before deletion
+  const confirmDeleteCategory = async () => {
+    if (!deletingCat) return
+    const { id, name } = deletingCat
     const generalCat = categories.find((c) => c.name === 'General')
     if (generalCat) {
       await supabase.from('products').update({ category_id: generalCat.id }).eq('category_id', id)
     }
-
     const { error } = await supabase.from('product_categories').delete().eq('id', id)
     if (error) alert('Error al eliminar: ' + error.message)
-    else refetch()
+    else {
+      await insertAuditLog(`Eliminó la categoría "${name}"`, 'category')
+      setDeletingCat(null)
+      refetch()
+    }
   }
 
   // Product Management Handlers
@@ -235,17 +307,51 @@ export default function AdminDashboard() {
         name: newProdName.trim(),
         price: parseFloat(newProdPrice),
         category_id: newProdCategoryId,
+        ingredients: newProdIngredients.trim() || null,
         active: true,
         stock: newProdStock.trim() === '' ? null : parseInt(newProdStock)
       }
     ])
     if (error) alert('Error al crear producto: ' + error.message)
     else {
+      await insertAuditLog(`Creó el producto "${newProdName.trim()}"`, 'product')
       setNewProdName('')
       setNewProdPrice('')
       setNewProdStock('')
       setNewProdCategoryId('')
-      setIsAddingProd(false)
+      setNewProdIngredients('')
+      setShowCreateProdModal(false)
+      refetch()
+    }
+  }
+
+  const openEditProduct = (prod: Product) => {
+    setEditingProduct(prod)
+    setEditProdName(prod.name)
+    setEditProdPrice(String(prod.price))
+    setEditProdStock(prod.stock !== null ? String(prod.stock) : '')
+    setEditProdCategoryId(prod.category_id || '')
+    setEditProdIngredients(prod.ingredients || '')
+    setEditProdActive(prod.active)
+  }
+
+  const handleEditProduct = async () => {
+    if (!editingProduct) return
+    const { error } = await supabase
+      .from('products')
+      .update({
+        name: editProdName.trim(),
+        price: parseFloat(editProdPrice),
+        category_id: editProdCategoryId || null,
+        ingredients: editProdIngredients.trim() || null,
+        stock: editProdStock.trim() === '' ? null : parseInt(editProdStock),
+        active: editProdActive
+      })
+      .eq('id', editingProduct.id)
+    if (error) alert('Error al editar producto: ' + error.message)
+    else {
+      await insertAuditLog(`Editó el producto "${editProdName.trim()}"`, 'product')
+      setEditingProduct(null)
       refetch()
     }
   }
@@ -255,10 +361,7 @@ export default function AdminDashboard() {
     if (value.trim() === '' || isNaN(parsed) || parsed < 0) return
     const { error } = await supabase
       .from('products')
-      .update({
-        stock: parsed,
-        active: parsed > 0
-      })
+      .update({ stock: parsed, active: parsed > 0 })
       .eq('id', id)
     if (error) alert('Error al actualizar stock: ' + error.message)
     else refetch()
@@ -268,20 +371,20 @@ export default function AdminDashboard() {
     const newStock = currentStock === null ? 0 : null
     const { error } = await supabase
       .from('products')
-      .update({
-        stock: newStock,
-        active: newStock === 0 ? false : true
-      })
+      .update({ stock: newStock, active: newStock === 0 ? false : true })
       .eq('id', id)
     if (error) alert('Error al actualizar stock: ' + error.message)
     else refetch()
   }
 
   const handleDeleteProduct = async (id: string, name: string) => {
-    if (!confirm(`¿Eliminar producto "${name}" permanentemente?`)) return
     const { error } = await supabase.from('products').delete().eq('id', id)
     if (error) alert('Error al eliminar: ' + error.message)
-    else refetch()
+    else {
+      await insertAuditLog(`Eliminó el producto "${name}"`, 'product')
+      setEditingProduct(null)
+      refetch()
+    }
   }
 
   const handleToggleProductStatus = async (id: string, currentStatus: boolean) => {
@@ -291,6 +394,20 @@ export default function AdminDashboard() {
       .eq('id', id)
     if (error) alert('Error al actualizar disponibilidad: ' + error.message)
     else refetch()
+  }
+
+  const fetchLogs = async () => {
+    setLogsLoading(true)
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - 14)
+    await supabase.from('audit_logs').delete().lt('created_at', cutoff.toISOString())
+    const { data: logsData } = await supabase
+      .from('audit_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100)
+    setLogs((logsData as AuditLog[]) || [])
+    setLogsLoading(false)
   }
 
   const handleCashClose = () => {
@@ -510,14 +627,36 @@ export default function AdminDashboard() {
               {/* Render Shipping Orders Destinations */}
               {shippingOrders.map((o) => {
                 if (o.lat === null || o.lng === null) return null
+                const driverIdx = profiles.findIndex((p) => p.id === o.delivery_id)
+                const color =
+                  driverIdx >= 0 ? DELIVERY_COLORS[driverIdx % DELIVERY_COLORS.length] : '#ef4444'
+                const driverName = driverIdx >= 0 ? profiles[driverIdx].full_name : null
                 return (
-                  <Marker key={`order-${o.id}`} position={[o.lat, o.lng]} icon={houseIcon}>
+                  <Marker
+                    key={`order-${o.id}`}
+                    position={[o.lat, o.lng]}
+                    icon={createDestIcon(color)}
+                  >
                     <Popup className="custom-popup">
                       <strong className="text-slate-900">{o.customer_name}</strong>
                       <br />
-                      <span className="text-primary font-bold text-xs uppercase">
-                        Pedido en camino
-                      </span>
+                      {driverName && (
+                        <span
+                          className="inline-flex items-center gap-1 text-xs font-bold mt-1"
+                          style={{ color }}
+                        >
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              width: 8,
+                              height: 8,
+                              borderRadius: '50%',
+                              background: color
+                            }}
+                          />
+                          {driverName}
+                        </span>
+                      )}
                     </Popup>
                   </Marker>
                 )
@@ -526,36 +665,64 @@ export default function AdminDashboard() {
               {/* Render Delivery Driver Live Locations */}
               {profiles
                 .filter((p) => p.current_lat && p.current_lng)
-                .map((p) => (
+                .map((p, idx) => (
                   <Marker
                     key={`profile-${p.id}`}
                     position={[p.current_lat!, p.current_lng!]}
-                    icon={deliveryIcon}
+                    icon={createDriverIcon(DELIVERY_COLORS[idx % DELIVERY_COLORS.length])}
                   >
                     <Popup>
-                      <strong className="text-slate-900">Repartidor: {p.full_name}</strong>
+                      <strong className="text-slate-900">🛵 {p.full_name}</strong>
                     </Popup>
                   </Marker>
                 ))}
             </MapContainer>
           )}
 
-          {/* Floating status counters on map */}
-          <div className="absolute top-4 right-4 z-[400] bg-surface-dark/95 backdrop-blur shadow-2xl rounded-2xl p-4 border border-border-dark flex flex-col gap-3 min-w-[160px]">
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-xs font-bold text-text-secondary uppercase tracking-wider">
+          {/* Delivery Legend + status counters */}
+          <div className="absolute top-4 right-4 z-[400] bg-surface-dark/95 backdrop-blur shadow-2xl rounded-2xl p-4 border border-border-dark flex flex-col gap-3 min-w-[180px] max-w-[220px]">
+            <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">
+              Repartidores
+            </p>
+            {profiles.length === 0 && (
+              <p className="text-xs text-text-muted italic">Sin repartidores</p>
+            )}
+            {profiles.map((p, idx) => {
+              const color = DELIVERY_COLORS[idx % DELIVERY_COLORS.length]
+              const orderCount = shippingOrders.filter((o) => o.delivery_id === p.id).length
+              const isOnline = !!(p.current_lat && p.current_lng)
+              return (
+                <div key={p.id} className="flex items-center gap-2">
+                  <span
+                    style={{ background: color }}
+                    className="w-3.5 h-3.5 rounded-full shrink-0 ring-2 ring-white/20"
+                  />
+                  <span className="text-xs font-bold text-white truncate flex-1">
+                    {p.full_name}
+                  </span>
+                  {orderCount > 0 && (
+                    <span
+                      style={{ background: color }}
+                      className="text-[10px] font-black text-white px-1.5 py-0.5 rounded-full leading-none"
+                    >
+                      {orderCount}
+                    </span>
+                  )}
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      isOnline ? 'bg-green-400 animate-pulse' : 'bg-slate-600'
+                    }`}
+                    title={isOnline ? 'En línea' : 'Sin ubicación'}
+                  />
+                </div>
+              )
+            })}
+            <div className="border-t border-border-dark pt-2 mt-1 flex items-center justify-between">
+              <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">
                 En camino
               </span>
               <span className="bg-primary/20 text-primary border border-primary/30 text-xs font-black px-2 py-0.5 rounded-md">
                 {shippingOrders.length}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-xs font-bold text-text-secondary uppercase tracking-wider">
-                Repartidores
-              </span>
-              <span className="bg-green-500/20 text-green-400 border border-green-500/30 text-xs font-black px-2 py-0.5 rounded-md">
-                {profiles.filter((p) => p.current_lat).length}
               </span>
             </div>
           </div>
@@ -584,7 +751,14 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            <div className="md:col-span-2 flex items-center justify-end">
+            <div className="md:col-span-2 flex items-center justify-end gap-3">
+              <button
+                onClick={() => { setShowLogsModal(true); fetchLogs() }}
+                className="bg-background-dark border border-border-dark hover:border-purple-500/50 text-white font-bold h-12 px-5 rounded-2xl shadow-lg flex items-center gap-2 transition-all cursor-pointer group"
+              >
+                <ScrollText className="w-5 h-5 text-purple-400 group-hover:scale-110 transition-transform" />
+                <span className="text-sm">Logs</span>
+              </button>
               <button
                 onClick={handleCashClose}
                 className="bg-background-dark border border-border-dark hover:border-primary/50 text-white font-bold h-12 px-6 rounded-2xl shadow-lg flex items-center gap-3 transition-all cursor-pointer group"
@@ -668,63 +842,13 @@ export default function AdminDashboard() {
                   <Coffee className="w-5 h-5 text-primary" /> Productos del Menú
                 </h3>
                 <button
-                  onClick={() => setIsAddingProd(!isAddingProd)}
-                  className={`p-2 rounded-lg transition-colors border ${isAddingProd ? 'bg-primary text-white border-transparent' : 'text-primary border-primary/30 hover:bg-primary hover:text-white hover:border-transparent'}`}
+                  onClick={() => setShowCreateProdModal(true)}
+                  className="p-2 rounded-lg transition-colors border text-primary border-primary/30 hover:bg-primary hover:text-white hover:border-transparent"
+                  title="Nuevo producto"
                 >
-                  {isAddingProd ? <ChevronUp className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                  <Plus className="w-4 h-4" />
                 </button>
               </div>
-
-              {isAddingProd && (
-                <div className="p-4 bg-primary/5 border-b border-border-dark flex flex-col gap-3">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newProdName}
-                      onChange={(e) => setNewProdName(e.target.value)}
-                      placeholder="Nombre del producto..."
-                      className="flex-1 bg-background-dark border border-border-dark rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                    />
-                    <input
-                      type="number"
-                      value={newProdPrice}
-                      onChange={(e) => setNewProdPrice(e.target.value)}
-                      placeholder="$ Precio"
-                      min="0"
-                      className="w-24 bg-background-dark border border-border-dark rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                    />
-                    <input
-                      type="number"
-                      value={newProdStock}
-                      onChange={(e) => setNewProdStock(e.target.value)}
-                      placeholder="Stock (opcional)"
-                      min="0"
-                      className="w-32 bg-background-dark border border-border-dark rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <select
-                      value={newProdCategoryId}
-                      onChange={(e) => setNewProdCategoryId(e.target.value)}
-                      className="flex-1 bg-background-dark border border-border-dark rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                    >
-                      <option value="">Selecciona Categoría...</option>
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={handleAddProduct}
-                      disabled={!newProdName.trim() || !newProdPrice || !newProdCategoryId}
-                      className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50"
-                    >
-                      Guardar
-                    </button>
-                  </div>
-                </div>
-              )}
 
               <div className="flex-1 overflow-y-auto p-4 space-y-6">
                 {categories.map((cat) => {
@@ -835,8 +959,19 @@ export default function AdminDashboard() {
                                   {prod.active ? 'Disponible' : 'Agotado'}
                                 </button>
                                 <button
-                                  onClick={() => handleDeleteProduct(prod.id, prod.name)}
-                                  className="p-2 text-text-muted hover:text-red-400 hover:bg-red-400/20 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                                  onClick={() => openEditProduct(prod)}
+                                  className="p-2 text-text-muted hover:text-primary hover:bg-primary/20 rounded-md transition-colors"
+                                  title="Editar producto"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (confirm(`¿Eliminar "${prod.name}"?`))
+                                      handleDeleteProduct(prod.id, prod.name)
+                                  }}
+                                  className="p-2 text-text-muted hover:text-red-400 hover:bg-red-400/20 rounded-md transition-colors"
+                                  title="Eliminar producto"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -859,6 +994,128 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Delete Category Modal */}
+      {deletingCat && (
+        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-surface-dark w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-border-dark">
+            <div className="flex items-center justify-center w-14 h-14 bg-red-500/10 rounded-full mx-auto mb-4 border border-red-500/20">
+              <Trash2 className="w-7 h-7 text-red-400" />
+            </div>
+            <h2 className="text-xl font-black text-center text-white mb-2">Eliminar Categoría</h2>
+            <p className="text-sm text-text-muted text-center mb-6 leading-relaxed">
+              Los productos de <span className="text-white font-bold">"{deletingCat.name}"</span> pasarán
+              automáticamente a la categoría <span className="text-primary font-bold">General</span>.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeletingCat(null)} className="flex-1 py-3 rounded-2xl bg-background-dark border border-border-dark text-text-muted font-bold hover:text-white transition-all text-sm">Cancelar</button>
+              <button onClick={confirmDeleteCategory} className="flex-1 py-3 rounded-2xl bg-red-500 hover:bg-red-600 text-white font-bold transition-all text-sm">Sí, eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Product Modal */}
+      {showCreateProdModal && (
+        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-4">
+          <div className="bg-surface-dark w-full max-w-md rounded-3xl shadow-2xl border border-border-dark">
+            <div className="p-6 space-y-4">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-black text-white">Nuevo Producto</h2>
+                <button onClick={() => setShowCreateProdModal(false)} className="w-8 h-8 rounded-full bg-background-dark flex items-center justify-center text-text-secondary hover:text-white"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="space-y-3">
+                <input type="text" value={newProdName} onChange={(e) => setNewProdName(e.target.value)} placeholder="Nombre del producto *" className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary" />
+                <div className="grid grid-cols-2 gap-3">
+                  <input type="number" value={newProdPrice} onChange={(e) => setNewProdPrice(e.target.value)} placeholder="Precio *" min="0" step="0.01" className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary" />
+                  <input type="number" value={newProdStock} onChange={(e) => setNewProdStock(e.target.value)} placeholder="Stock (opcional)" min="0" className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary" />
+                </div>
+                <select value={newProdCategoryId} onChange={(e) => setNewProdCategoryId(e.target.value)} className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary">
+                  <option value="">Seleccionar categoría *</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <textarea value={newProdIngredients} onChange={(e) => setNewProdIngredients(e.target.value)} placeholder="Ingredientes / descripción (opcional)" rows={2} className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary resize-none" />
+              </div>
+              <button onClick={handleAddProduct} disabled={!newProdName.trim() || !newProdPrice || !newProdCategoryId} className="w-full py-3.5 bg-primary hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-2">
+                <Plus className="w-4 h-4" /> Crear Producto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Product Modal */}
+      {editingProduct && (
+        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-4">
+          <div className="bg-surface-dark w-full max-w-md rounded-3xl shadow-2xl border border-border-dark">
+            <div className="p-6 space-y-4">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-black text-white">Editar Producto</h2>
+                <button onClick={() => setEditingProduct(null)} className="w-8 h-8 rounded-full bg-background-dark flex items-center justify-center text-text-secondary hover:text-white"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="space-y-3">
+                <input type="text" value={editProdName} onChange={(e) => setEditProdName(e.target.value)} placeholder="Nombre del producto" className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary" />
+                <div className="grid grid-cols-2 gap-3">
+                  <input type="number" value={editProdPrice} onChange={(e) => setEditProdPrice(e.target.value)} placeholder="Precio" min="0" step="0.01" className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary" />
+                  <input type="number" value={editProdStock} onChange={(e) => setEditProdStock(e.target.value)} placeholder="Stock (vacío = sin límite)" min="0" className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary" />
+                </div>
+                <select value={editProdCategoryId} onChange={(e) => setEditProdCategoryId(e.target.value)} className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary">
+                  <option value="">Sin categoría</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <textarea value={editProdIngredients} onChange={(e) => setEditProdIngredients(e.target.value)} placeholder="Ingredientes / descripción" rows={2} className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary resize-none" />
+                <button onClick={() => setEditProdActive((v) => !v)} className={`w-full py-2.5 rounded-2xl text-sm font-bold transition-all border ${editProdActive ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-red-500/20 border-red-500/30 text-red-400'}`}>
+                  {editProdActive ? '✓ Disponible' : '✗ Agotado'} — toca para cambiar
+                </button>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => { if (confirm(`¿Eliminar "${editingProduct.name}" permanentemente?`)) handleDeleteProduct(editingProduct.id, editingProduct.name) }} className="py-3 px-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 font-bold hover:bg-red-500/20 transition-all">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+                <button onClick={handleEditProduct} disabled={!editProdName.trim() || !editProdPrice} className="flex-1 py-3 bg-primary hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-2xl transition-all text-sm">Guardar Cambios</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Audit Logs Modal */}
+      {showLogsModal && (
+        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-surface-dark w-full max-w-lg rounded-3xl shadow-2xl border border-border-dark flex flex-col max-h-[85vh]">
+            <div className="flex justify-between items-center p-6 border-b border-border-dark shrink-0">
+              <div>
+                <h2 className="text-xl font-black text-white flex items-center gap-2"><ScrollText className="w-5 h-5 text-purple-400" /> Logs de Actividad</h2>
+                <p className="text-xs text-text-muted mt-0.5">Últimas 2 semanas</p>
+              </div>
+              <button onClick={() => setShowLogsModal(false)} className="w-8 h-8 rounded-full bg-background-dark flex items-center justify-center text-text-secondary hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {logsLoading ? (
+                <div className="flex justify-center py-10"><div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-400" /></div>
+              ) : logs.length === 0 ? (
+                <p className="text-sm text-text-muted text-center py-10">No hay actividad registrada.</p>
+              ) : (
+                logs.map((log) => (
+                  <div key={log.id} className="flex gap-3 p-3 bg-background-dark/60 border border-border-dark rounded-xl">
+                    <div className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0 text-xs font-black text-purple-400">
+                      {log.user_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium leading-snug">{log.action}</p>
+                      <p className="text-text-muted text-xs mt-0.5">
+                        <span className="text-primary font-bold">{log.user_name}</span>
+                        {' · '}
+                        {new Date(log.created_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Cash Close Modal Dialog */}
       {cashCloseMode && (

@@ -17,11 +17,11 @@ function App() {
 
         {/* Protected Routes wrapped in Layout */}
         <Route path="/" element={<Layout />}>
-          {/* Admin Dashboard */}
+          {/* Admin Dashboard — also accessible by staff */}
           <Route
             index
             element={
-              <ProtectedRoute allowedRoles={['admin']}>
+              <ProtectedRoute allowedRoles={['admin', 'staff']}>
                 <AdminDashboard />
               </ProtectedRoute>
             }

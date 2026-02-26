@@ -196,55 +196,59 @@ export default function DigitalComanda() {
 
   return (
     <div className="flex flex-col w-full pb-8">
-      {/* Sticky Header */}
-      <div className="sticky top-0 z-10 bg-background-dark px-4 pt-4 pb-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-            <ClipboardList className="w-5 h-5 text-primary" />
+      {/* Sticky Header + Tabs — single block to avoid scroll-through gap */}
+      <div className="sticky top-0 z-10 bg-background-dark">
+        <div className="px-4 pt-4 pb-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <ClipboardList className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-xl font-black text-white tracking-tight leading-none">
+                Comandas
+              </h1>
+              <p className="text-xs text-text-muted mt-1">Gestión en tiempo real</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-black text-white tracking-tight leading-none">Comandas</h1>
-            <p className="text-xs text-text-muted mt-1">Gestión en tiempo real</p>
-          </div>
+          <Link
+            to="/comanda/crear"
+            className="bg-primary hover:bg-orange-600 text-white w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 transition-all shrink-0 border border-primary/50"
+          >
+            <Plus className="w-6 h-6" />
+          </Link>
         </div>
-        <Link
-          to="/comanda/crear"
-          className="bg-primary hover:bg-orange-600 text-white w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 transition-all shrink-0 border border-primary/50"
-        >
-          <Plus className="w-6 h-6" />
-        </Link>
-      </div>
 
-      {/* Sticky Tabs */}
-      <div className="sticky top-[72px] z-10 bg-background-dark flex border-b border-border-dark w-full mb-4 px-4">
-        <TabButton
-          id="pending"
-          label="Pendientes"
-          icon={Clock}
-          count={pendingOrders.length}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-        />
-        <TabButton
-          id="ready"
-          label="Listos"
-          icon={CheckCircle2}
-          count={readyOrders.length}
-          highlight={readyOrders.length > 0}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-        />
-        <TabButton
-          id="history"
-          label="Historial"
-          icon={RotateCcw}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-        />
+        {/* Tabs */}
+        <div className="flex border-b border-border-dark w-full px-4">
+          <TabButton
+            id="pending"
+            label="Pendientes"
+            icon={Clock}
+            count={pendingOrders.length}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+          />
+          <TabButton
+            id="ready"
+            label="Listos"
+            icon={CheckCircle2}
+            count={readyOrders.length}
+            highlight={readyOrders.length > 0}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+          />
+          <TabButton
+            id="history"
+            label="Historial"
+            icon={RotateCcw}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+          />
+        </div>
       </div>
 
       {/* Cards — natural flow, parent main scrolls */}
-      <div className="flex flex-col gap-4 px-4 pb-8">
+      <div className="flex flex-col gap-4 px-4 mt-4 pb-8">
         {isLoading && (
           <div className="flex justify-center py-10">
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>

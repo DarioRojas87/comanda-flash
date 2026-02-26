@@ -114,7 +114,9 @@ export function Layout() {
 
       {/* Bottom Navigation Bar */}
       <nav className="flex gap-2 border-t border-border-dark bg-surface-dark px-4 pb-6 pt-3 shrink-0 z-20 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.5)]">
-        {isAdmin && <NavLink to="/" icon={House} label="Home" active={location.pathname === '/'} />}
+        {(isAdmin || isStaff) && (
+          <NavLink to="/" icon={House} label="Home" active={location.pathname === '/'} />
+        )}
 
         {(isAdmin || isStaff) && (
           <NavLink
