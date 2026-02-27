@@ -112,7 +112,8 @@ export default function SettingsPage() {
     },
     onSuccess: (_data, userId) => {
       const deleted = profiles.find((p) => p.id === userId)
-      if (deleted) insertAuditLog(`Eliminó usuario "${deleted.full_name}" (${deleted.role})`, 'user')
+      if (deleted)
+        insertAuditLog(`Eliminó usuario "${deleted.full_name}" (${deleted.role})`, 'user')
       queryClient.invalidateQueries({ queryKey: ['settingsProfiles'] })
     }
   })

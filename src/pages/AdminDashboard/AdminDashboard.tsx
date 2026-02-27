@@ -14,7 +14,6 @@ import {
   Plus,
   Trash2,
   Pencil,
-  X,
   ScrollText,
   ChevronUp,
   ChevronDown
@@ -24,6 +23,15 @@ import autoTable from 'jspdf-autotable'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 
+import type { Product, ProductCategory, AdminOrder, AuditLog } from './types'
+import { DELIVERY_COLORS, createDriverIcon, createDestIcon } from './constants'
+import { fetchAdminData, insertAuditLog } from './utils'
+import DeleteCategoryModal from './components/DeleteCategoryModal'
+import CreateProductModal from './components/CreateProductModal'
+import EditProductModal from './components/EditProductModal'
+import AuditLogModal from './components/AuditLogModal'
+import CashCloseModal from './components/CashCloseModal'
+
 // Fix Leaflet's default icon path issues
 delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: string })._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -31,135 +39,6 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png'
 })
-
-// Delivery color palette — one color per driver, assigned by array index
-const DELIVERY_COLORS = [
-  '#f97316',
-  '#3b82f6',
-  '#22c55e',
-  '#a855f7',
-  '#ef4444',
-  '#eab308',
-  '#ec4899'
-]
-
-// Colored circular SVG icon for a delivery driver
-const createDriverIcon = (color: string) =>
-  new L.DivIcon({
-    className: '',
-    html: `<div style="
-      width:32px;height:32px;
-      background:${color};
-      border:3px solid white;
-      border-radius:50%;
-      box-shadow:0 2px 8px rgba(0,0,0,0.35);
-      display:flex;align-items:center;justify-content:center;
-    ">
-      <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'>
-        <circle cx='18.5' cy='17.5' r='3.5'/><circle cx='5.5' cy='17.5' r='3.5'/>
-        <path d='M15 6a1 1 0 0 0 0-2h-1l-5 5H1m18.5 0H15'/>
-        <path d='m6 17 3-9h5.5l2 5 2 4'/>
-      </svg>
-    </div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
-    popupAnchor: [0, -18]
-  })
-
-// Colored teardrop pin icon for an order destination
-const createDestIcon = (color: string) =>
-  new L.DivIcon({
-    className: '',
-    html: `<div style="position:relative;width:26px;height:38px;">
-      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 38' width='26' height='38'>
-        <path d='M13 0C6 0 0 6 0 13c0 9.5 13 25 13 25S26 22.5 26 13C26 6 20 0 13 0z' fill='${color}' stroke='white' stroke-width='1.5'/>
-        <circle cx='13' cy='13' r='5' fill='white' opacity='0.9'/>
-      </svg>
-    </div>`,
-    iconSize: [26, 38],
-    iconAnchor: [13, 38],
-    popupAnchor: [0, -40]
-  })
-
-interface Order {
-  id: string
-  customer_name: string
-  lat: number | null
-  lng: number | null
-  status: string
-  total_amount: number | null
-  is_paid: boolean
-  delivery_id: string | null
-  address_text: string | null
-  created_at: string | null
-}
-
-interface Profile {
-  id: string
-  full_name: string
-  role: string
-  current_lat: number | null
-  current_lng: number | null
-}
-
-export interface ProductCategory {
-  id: string
-  name: string
-  created_at: string
-}
-
-export interface Product {
-  id: string
-  name: string
-  price: number
-  active: boolean
-  category_id: string | null
-  ingredients: string | null
-  stock: number | null
-}
-
-interface AuditLog {
-  id: string
-  user_name: string
-  action: string
-  entity_type: string
-  created_at: string
-}
-
-const fetchAdminData = async () => {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  const {
-    data: { session }
-  } = await supabase.auth.getSession()
-  const userId = session?.user?.id
-
-  const [ordersRes, profilesRes, categoriesRes, productsRes, adminProfileRes] = await Promise.all([
-    supabase.from('orders').select('*').gte('created_at', today.toISOString()),
-    supabase.from('profiles').select('*').eq('role', 'delivery'),
-    supabase.from('product_categories').select('*').order('name'),
-    supabase.from('products').select('*').order('name'),
-    userId
-      ? supabase.from('profiles').select('*').eq('id', userId).single()
-      : Promise.resolve({ data: null, error: null })
-  ])
-
-  if (ordersRes.error) throw new Error(ordersRes.error.message)
-  if (profilesRes.error) throw new Error(profilesRes.error.message)
-  if (categoriesRes.error) throw new Error(categoriesRes.error.message)
-  if (productsRes.error) throw new Error(productsRes.error.message)
-  if (adminProfileRes.error && adminProfileRes.error.code !== 'PGRST116')
-    throw new Error(adminProfileRes.error.message)
-
-  return {
-    orders: ordersRes.data as Order[],
-    profiles: profilesRes.data as Profile[],
-    categories: categoriesRes.data as ProductCategory[],
-    products: productsRes.data as Product[],
-    adminProfile: adminProfileRes.data as Profile | null
-  }
-}
 
 export default function AdminDashboard() {
   const { profile: currentProfile } = useAuth()
@@ -203,7 +82,7 @@ export default function AdminDashboard() {
   // Accordion state for product categories
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({})
 
-  // Per-product stock input state (tracks the text value while editing)
+  // Per-product stock input state
   const [editingStock, setEditingStock] = useState<Record<string, string>>({})
 
   const orders = data?.orders || []
@@ -248,22 +127,11 @@ export default function AdminDashboard() {
     }
   }, [queryClient])
 
-  // Audit log helper
-  const insertAuditLog = async (action: string, entityType: 'product' | 'category' | 'user') => {
-    if (!currentProfile) return
-    try {
-      await supabase.from('audit_logs').insert({
-        user_id: currentProfile.id,
-        user_name: currentProfile.full_name,
-        action,
-        entity_type: entityType
-      })
-    } catch {
-      // Non-critical: don't block UX if logging fails
-    }
-  }
+  const auditLog = (action: string, entityType: 'product' | 'category' | 'user') =>
+    insertAuditLog(action, entityType, currentProfile)
 
-  // Category Management Handlers
+  // ── Category handlers ─────────────────────────────────────────────────────
+
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return
     const { error } = await supabase
@@ -271,7 +139,7 @@ export default function AdminDashboard() {
       .insert([{ name: newCatName.trim() }])
     if (error) alert('Error al crear categoría: ' + error.message)
     else {
-      await insertAuditLog(`Creó la categoría "${newCatName.trim()}"`, 'category')
+      await auditLog(`Creó la categoría "${newCatName.trim()}"`, 'category')
       setNewCatName('')
       setIsAddingCat(false)
       refetch()
@@ -293,13 +161,14 @@ export default function AdminDashboard() {
     const { error } = await supabase.from('product_categories').delete().eq('id', id)
     if (error) alert('Error al eliminar: ' + error.message)
     else {
-      await insertAuditLog(`Eliminó la categoría "${name}"`, 'category')
+      await auditLog(`Eliminó la categoría "${name}"`, 'category')
       setDeletingCat(null)
       refetch()
     }
   }
 
-  // Product Management Handlers
+  // ── Product handlers ──────────────────────────────────────────────────────
+
   const handleAddProduct = async () => {
     if (!newProdName.trim() || !newProdPrice || !newProdCategoryId) return
     const { error } = await supabase.from('products').insert([
@@ -314,7 +183,7 @@ export default function AdminDashboard() {
     ])
     if (error) alert('Error al crear producto: ' + error.message)
     else {
-      await insertAuditLog(`Creó el producto "${newProdName.trim()}"`, 'product')
+      await auditLog(`Creó el producto "${newProdName.trim()}"`, 'product')
       setNewProdName('')
       setNewProdPrice('')
       setNewProdStock('')
@@ -350,7 +219,7 @@ export default function AdminDashboard() {
       .eq('id', editingProduct.id)
     if (error) alert('Error al editar producto: ' + error.message)
     else {
-      await insertAuditLog(`Editó el producto "${editProdName.trim()}"`, 'product')
+      await auditLog(`Editó el producto "${editProdName.trim()}"`, 'product')
       setEditingProduct(null)
       refetch()
     }
@@ -381,7 +250,7 @@ export default function AdminDashboard() {
     const { error } = await supabase.from('products').delete().eq('id', id)
     if (error) alert('Error al eliminar: ' + error.message)
     else {
-      await insertAuditLog(`Eliminó el producto "${name}"`, 'product')
+      await auditLog(`Eliminó el producto "${name}"`, 'product')
       setEditingProduct(null)
       refetch()
     }
@@ -396,6 +265,8 @@ export default function AdminDashboard() {
     else refetch()
   }
 
+  // ── Audit Logs ────────────────────────────────────────────────────────────
+
   const fetchLogs = async () => {
     setLogsLoading(true)
     const cutoff = new Date()
@@ -409,6 +280,8 @@ export default function AdminDashboard() {
     setLogs((logsData as AuditLog[]) || [])
     setLogsLoading(false)
   }
+
+  // ── Cash Close / PDF ──────────────────────────────────────────────────────
 
   const handleCashClose = () => {
     const delivered = orders.filter((o) => o.status === 'delivered')
@@ -437,8 +310,7 @@ export default function AdminDashboard() {
       35
     )
 
-    // Group by delivery person
-    const deliveryGroups: Record<string, { name: string; orders: Order[] }> = {}
+    const deliveryGroups: Record<string, { name: string; orders: AdminOrder[] }> = {}
     for (const o of deliveredOrders) {
       const key = o.delivery_id ?? 'sin-asignar'
       const profile = profiles.find((p) => p.id === key)
@@ -454,7 +326,6 @@ export default function AdminDashboard() {
       doc.setFont('helvetica', 'bold')
       doc.text(`Repartidor: ${name}  (Subtotal: $${subtotal.toFixed(2)})`, 14, y)
       y += 4
-
       autoTable(doc, {
         startY: y,
         head: [['Cliente', 'Dirección', 'Monto', 'Pagado']],
@@ -501,14 +372,11 @@ export default function AdminDashboard() {
         margin: { left: 14, right: 14 }
       })
     }
-
     doc.save(`cierre-caja-${today.replace(/\//g, '-')}.pdf`)
   }
 
   const handleResetDay = () => {
-    // Auto-download PDF before closing
     handleDownloadPDF()
-    // Mark the close time so Comanda history resets from this point
     localStorage.setItem('cf_last_closed_at', new Date().toISOString())
     setCashCloseMode(false)
   }
@@ -516,19 +384,16 @@ export default function AdminDashboard() {
   const handleDownload7DayPDF = async () => {
     const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-
     const { data: weekOrders } = await supabase
       .from('orders')
       .select('*')
       .gte('created_at', sevenDaysAgo.toISOString())
       .eq('status', 'delivered')
       .order('created_at', { ascending: true })
-
     if (!weekOrders || weekOrders.length === 0) {
       alert('No hay pedidos entregados en los últimos 7 días.')
       return
     }
-
     const doc = new jsPDF()
     const from = sevenDaysAgo.toLocaleDateString('es-AR')
     const to = new Date().toLocaleDateString('es-AR')
@@ -538,14 +403,12 @@ export default function AdminDashboard() {
     doc.setFontSize(9)
     doc.setFont('helvetica', 'normal')
     doc.text(`Período: ${from} al ${to}`, 14, 25)
-
-    const total = weekOrders.reduce((a: number, o: Order) => a + (o.total_amount ?? 0), 0)
+    const total = weekOrders.reduce((a: number, o: AdminOrder) => a + (o.total_amount ?? 0), 0)
     doc.text(`Total entregado: $${total.toFixed(2)}   Pedidos: ${weekOrders.length}`, 14, 31)
-
     autoTable(doc, {
       startY: 38,
       head: [['Fecha', 'Cliente', 'Dirección', 'Monto']],
-      body: weekOrders.map((o: Order) => [
+      body: weekOrders.map((o: AdminOrder) => [
         new Date(o.created_at ?? '').toLocaleDateString('es-AR'),
         o.customer_name,
         o.address_text ?? '-',
@@ -555,16 +418,14 @@ export default function AdminDashboard() {
       headStyles: { fillColor: [59, 130, 246] },
       margin: { left: 14, right: 14 }
     })
-
     doc.save(`historial-7dias-${to.replace(/\//g, '-')}.pdf`)
   }
 
-  // Active delivery orders (shipping)
   const shippingOrders = orders.filter((o) => o.status === 'shipping' && o.lat && o.lng)
 
   return (
     <div className="relative flex flex-col h-full bg-background-light dark:bg-background-dark p-4 gap-4">
-      {/* Top Header / Stats Overview + Tabs Nav */}
+      {/* Header */}
       <div className="flex flex-col gap-4 shrink-0 mb-2">
         <div className="flex gap-4 items-center justify-between">
           <div className="flex items-center gap-3">
@@ -582,7 +443,7 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Custom Tabs */}
+        {/* Tabs */}
         <div className="flex p-1 bg-surface-dark border border-border-dark rounded-xl w-full max-w-sm">
           <button
             onClick={() => setActiveTab('map')}
@@ -614,7 +475,7 @@ export default function AdminDashboard() {
               center={
                 data?.adminProfile?.current_lat && data?.adminProfile?.current_lng
                   ? [data.adminProfile.current_lat, data.adminProfile.current_lng]
-                  : [-27.0551, -65.3983] // Famaillá, Tucumán default fallback
+                  : [-27.0551, -65.3983]
               }
               zoom={12}
               style={{ height: '100%', width: '100%' }}
@@ -623,8 +484,6 @@ export default function AdminDashboard() {
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
                 url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
               />
-
-              {/* Render Shipping Orders Destinations */}
               {shippingOrders.map((o) => {
                 if (o.lat === null || o.lng === null) return null
                 const driverIdx = profiles.findIndex((p) => p.id === o.delivery_id)
@@ -661,8 +520,6 @@ export default function AdminDashboard() {
                   </Marker>
                 )
               })}
-
-              {/* Render Delivery Driver Live Locations */}
               {profiles
                 .filter((p) => p.current_lat && p.current_lng)
                 .map((p, idx) => (
@@ -679,7 +536,7 @@ export default function AdminDashboard() {
             </MapContainer>
           )}
 
-          {/* Delivery Legend + status counters */}
+          {/* Delivery Legend */}
           <div className="absolute top-4 right-4 z-[400] bg-surface-dark/95 backdrop-blur shadow-2xl rounded-2xl p-4 border border-border-dark flex flex-col gap-3 min-w-[180px] max-w-[220px]">
             <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">
               Repartidores
@@ -709,9 +566,7 @@ export default function AdminDashboard() {
                     </span>
                   )}
                   <span
-                    className={`w-2 h-2 rounded-full shrink-0 ${
-                      isOnline ? 'bg-green-400 animate-pulse' : 'bg-slate-600'
-                    }`}
+                    className={`w-2 h-2 rounded-full shrink-0 ${isOnline ? 'bg-green-400 animate-pulse' : 'bg-slate-600'}`}
                     title={isOnline ? 'En línea' : 'Sin ubicación'}
                   />
                 </div>
@@ -750,7 +605,6 @@ export default function AdminDashboard() {
                 <ReceiptText className="w-6 h-6 text-green-400" />
               </div>
             </div>
-
             <div className="md:col-span-2 flex items-center justify-end gap-3">
               <button
                 onClick={() => {
@@ -773,7 +627,7 @@ export default function AdminDashboard() {
           </div>
 
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Categories Section */}
+            {/* Categories Panel */}
             <div className="bg-background-dark rounded-2xl border border-border-dark p-0 flex flex-col overflow-hidden">
               <div className="p-5 border-b border-border-dark flex items-center justify-between bg-surface-dark/50">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
@@ -786,7 +640,6 @@ export default function AdminDashboard() {
                   {isAddingCat ? <ChevronUp className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                 </button>
               </div>
-
               {isAddingCat && (
                 <div className="p-4 bg-primary/5 border-b border-border-dark flex gap-2">
                   <input
@@ -806,7 +659,6 @@ export default function AdminDashboard() {
                   </button>
                 </div>
               )}
-
               <div className="flex-1 overflow-y-auto p-2">
                 {categories.length === 0 ? (
                   <p className="text-sm text-text-muted text-center py-8">
@@ -814,13 +666,13 @@ export default function AdminDashboard() {
                   </p>
                 ) : (
                   <ul className="space-y-1">
-                    {categories.map((cat) => (
+                    {categories.map((cat: ProductCategory) => (
                       <li
                         key={cat.id}
                         className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors"
                       >
                         <span className="text-slate-200 font-medium">{cat.name}</span>
-                        {cat.name !== 'General' && (
+                        {cat.name !== 'General' && cat.name !== 'Agregados' && (
                           <button
                             onClick={() => handleDeleteCategory(cat.id, cat.name)}
                             className="p-1.5 text-red-400 bg-red-500/10 border border-red-500/30 hover:bg-red-500/25 rounded-lg transition-colors"
@@ -836,7 +688,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Products Section */}
+            {/* Products Panel */}
             <div className="bg-background-dark rounded-2xl border border-border-dark p-0 flex flex-col overflow-hidden">
               <div className="p-5 border-b border-border-dark flex items-center justify-between bg-surface-dark/50">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
@@ -850,14 +702,11 @@ export default function AdminDashboard() {
                   <Plus className="w-4 h-4" />
                 </button>
               </div>
-
               <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                {categories.map((cat) => {
+                {categories.map((cat: ProductCategory) => {
                   const catProducts = products.filter((p) => p.category_id === cat.id)
                   if (catProducts.length === 0) return null
-
                   const isExpanded = expandedCats[cat.id] ?? catProducts.length <= 6
-
                   return (
                     <div
                       key={`prod-cat-${cat.id}`}
@@ -881,7 +730,6 @@ export default function AdminDashboard() {
                           <ChevronDown className="w-5 h-5 text-text-muted group-hover:text-primary transition-colors" />
                         )}
                       </button>
-
                       {isExpanded && (
                         <div className="p-4 pt-4 space-y-2 border-t border-border-dark/50">
                           {catProducts.map((prod) => (
@@ -889,7 +737,6 @@ export default function AdminDashboard() {
                               key={prod.id}
                               className="flex flex-col gap-2 p-3 bg-surface-dark border border-border-dark rounded-xl hover:bg-white/5 transition-colors"
                             >
-                              {/* Top row: name + price + edit/delete */}
                               <div className="flex items-start justify-between gap-2">
                                 <div className="flex flex-col min-w-0 flex-1">
                                   <span className="text-white font-bold leading-tight truncate">
@@ -904,7 +751,6 @@ export default function AdminDashboard() {
                                     </span>
                                   )}
                                 </div>
-                                {/* Edit + Delete buttons */}
                                 <div className="flex items-center gap-1.5 shrink-0">
                                   <button
                                     onClick={() => openEditProduct(prod)}
@@ -925,10 +771,7 @@ export default function AdminDashboard() {
                                   </button>
                                 </div>
                               </div>
-
-                              {/* Bottom row: stock controls + status toggle */}
                               <div className="flex items-center gap-2">
-                                {/* Disable Stock Tracking Button */}
                                 {prod.stock !== null && (
                                   <button
                                     onClick={() => handleToggleStockTracking(prod.id, prod.stock)}
@@ -938,8 +781,6 @@ export default function AdminDashboard() {
                                     ∞
                                   </button>
                                 )}
-
-                                {/* Stock Controls */}
                                 <div className="flex items-center gap-1 bg-background-dark/50 rounded-lg border border-border-dark/60 p-1 mr-2">
                                   {prod.stock !== null ? (
                                     <input
@@ -961,9 +802,7 @@ export default function AdminDashboard() {
                                         })
                                       }}
                                       onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          e.currentTarget.blur()
-                                        }
+                                        if (e.key === 'Enter') e.currentTarget.blur()
                                       }}
                                       className="w-16 h-8 text-center text-base font-mono font-bold text-white bg-transparent outline-none border-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                                     />
@@ -976,7 +815,6 @@ export default function AdminDashboard() {
                                     </button>
                                   )}
                                 </div>
-
                                 <button
                                   onClick={() => handleToggleProductStatus(prod.id, prod.active)}
                                   className={`text-[10px] font-bold px-3 py-1.5 rounded-md uppercase tracking-wide transition-all ${prod.active ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}`}
@@ -991,7 +829,6 @@ export default function AdminDashboard() {
                     </div>
                   )
                 })}
-
                 {products.length === 0 && (
                   <p className="text-sm text-text-muted text-center py-4">
                     No hay productos creados.
@@ -1003,379 +840,85 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Delete Category Modal */}
+      {/* ── Modals ── */}
+
       {deletingCat && (
-        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-surface-dark w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-border-dark">
-            <div className="flex items-center justify-center w-14 h-14 bg-red-500/10 rounded-full mx-auto mb-4 border border-red-500/20">
-              <Trash2 className="w-7 h-7 text-red-400" />
-            </div>
-            <h2 className="text-xl font-black text-center text-white mb-2">Eliminar Categoría</h2>
-            <p className="text-sm text-text-muted text-center mb-6 leading-relaxed">
-              Los productos de <span className="text-white font-bold">"{deletingCat.name}"</span>{' '}
-              pasarán automáticamente a la categoría{' '}
-              <span className="text-primary font-bold">General</span>.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeletingCat(null)}
-                className="flex-1 py-3 rounded-2xl bg-background-dark border border-border-dark text-text-muted font-bold hover:text-white transition-all text-sm"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={confirmDeleteCategory}
-                className="flex-1 py-3 rounded-2xl bg-red-500 hover:bg-red-600 text-white font-bold transition-all text-sm"
-              >
-                Sí, eliminar
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteCategoryModal
+          name={deletingCat.name}
+          onConfirm={confirmDeleteCategory}
+          onCancel={() => setDeletingCat(null)}
+        />
       )}
 
-      {/* Create Product Modal */}
       {showCreateProdModal && (
-        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-4">
-          <div className="bg-surface-dark w-full max-w-md rounded-3xl shadow-2xl border border-border-dark">
-            <div className="p-6 space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-black text-white">Nuevo Producto</h2>
-                <button
-                  onClick={() => setShowCreateProdModal(false)}
-                  className="w-8 h-8 rounded-full bg-background-dark flex items-center justify-center text-text-secondary hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="space-y-3">
-                <input
-                  type="text"
-                  value={newProdName}
-                  onChange={(e) => setNewProdName(e.target.value)}
-                  placeholder="Nombre del producto *"
-                  className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
-                />
-                <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="number"
-                    value={newProdPrice}
-                    onChange={(e) => setNewProdPrice(e.target.value)}
-                    placeholder="Precio *"
-                    min="0"
-                    step="0.01"
-                    className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
-                  />
-                  <input
-                    type="number"
-                    value={newProdStock}
-                    onChange={(e) => setNewProdStock(e.target.value)}
-                    placeholder="Stock (opcional)"
-                    min="0"
-                    className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
-                  />
-                </div>
-                <select
-                  value={newProdCategoryId}
-                  onChange={(e) => setNewProdCategoryId(e.target.value)}
-                  className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
-                >
-                  <option value="">Seleccionar categoría *</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                <textarea
-                  value={newProdIngredients}
-                  onChange={(e) => setNewProdIngredients(e.target.value)}
-                  placeholder="Ingredientes / descripción (opcional)"
-                  rows={2}
-                  className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary resize-none"
-                />
-              </div>
-              <button
-                onClick={handleAddProduct}
-                disabled={!newProdName.trim() || !newProdPrice || !newProdCategoryId}
-                className="w-full py-3.5 bg-primary hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-2"
-              >
-                <Plus className="w-4 h-4" /> Crear Producto
-              </button>
-            </div>
-          </div>
-        </div>
+        <CreateProductModal
+          name={newProdName}
+          price={newProdPrice}
+          stock={newProdStock}
+          categoryId={newProdCategoryId}
+          ingredients={newProdIngredients}
+          categories={categories}
+          onNameChange={setNewProdName}
+          onPriceChange={setNewProdPrice}
+          onStockChange={setNewProdStock}
+          onCategoryChange={setNewProdCategoryId}
+          onIngredientsChange={setNewProdIngredients}
+          onCreate={handleAddProduct}
+          onClose={() => setShowCreateProdModal(false)}
+        />
       )}
 
-      {/* Edit Product Modal */}
       {editingProduct && (
-        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-4">
-          <div className="bg-surface-dark w-full max-w-md rounded-3xl shadow-2xl border border-border-dark">
-            <div className="p-6 space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-black text-white">Editar Producto</h2>
-                <button
-                  onClick={() => setEditingProduct(null)}
-                  className="w-8 h-8 rounded-full bg-background-dark flex items-center justify-center text-text-secondary hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="space-y-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
-                    Nombre
-                  </label>
-                  <input
-                    type="text"
-                    value={editProdName}
-                    onChange={(e) => setEditProdName(e.target.value)}
-                    placeholder="Nombre del producto"
-                    className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
-                      Precio ($)
-                    </label>
-                    <input
-                      type="number"
-                      value={editProdPrice}
-                      onChange={(e) => setEditProdPrice(e.target.value)}
-                      placeholder="0.00"
-                      min="0"
-                      step="0.01"
-                      className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
-                      Stock <span className="normal-case font-normal">(vacío = sin límite)</span>
-                    </label>
-                    <input
-                      type="number"
-                      value={editProdStock}
-                      onChange={(e) => setEditProdStock(e.target.value)}
-                      placeholder="—"
-                      min="0"
-                      className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
-                    Categoría
-                  </label>
-                  <select
-                    value={editProdCategoryId}
-                    onChange={(e) => setEditProdCategoryId(e.target.value)}
-                    className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary"
-                  >
-                    <option value="">Sin categoría</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
-                    Ingredientes / Descripción
-                  </label>
-                  <textarea
-                    value={editProdIngredients}
-                    onChange={(e) => setEditProdIngredients(e.target.value)}
-                    placeholder="Opcional..."
-                    rows={2}
-                    className="w-full bg-background-dark border border-border-dark rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary resize-none"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
-                    Disponibilidad
-                  </label>
-                  <button
-                    onClick={() => setEditProdActive((v) => !v)}
-                    className={`w-full py-2.5 rounded-2xl text-sm font-bold transition-all border ${editProdActive ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-red-500/20 border-red-500/30 text-red-400'}`}
-                  >
-                    {editProdActive ? '✓ Disponible' : '✗ Agotado'} — toca para cambiar
-                  </button>
-                </div>
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button
-                  onClick={() => {
-                    if (confirm(`¿Eliminar "${editingProduct.name}" permanentemente?`))
-                      handleDeleteProduct(editingProduct.id, editingProduct.name)
-                  }}
-                  className="py-3 px-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 font-bold hover:bg-red-500/20 transition-all"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handleEditProduct}
-                  disabled={!editProdName.trim() || !editProdPrice}
-                  className="flex-1 py-3 bg-primary hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-2xl transition-all text-sm"
-                >
-                  Guardar Cambios
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <EditProductModal
+          product={editingProduct}
+          name={editProdName}
+          price={editProdPrice}
+          stock={editProdStock}
+          categoryId={editProdCategoryId}
+          ingredients={editProdIngredients}
+          active={editProdActive}
+          categories={categories}
+          onNameChange={setEditProdName}
+          onPriceChange={setEditProdPrice}
+          onStockChange={setEditProdStock}
+          onCategoryChange={setEditProdCategoryId}
+          onIngredientsChange={setEditProdIngredients}
+          onActiveToggle={() => setEditProdActive((v) => !v)}
+          onSave={handleEditProduct}
+          onDelete={() => {
+            if (confirm(`¿Eliminar "${editingProduct.name}" permanentemente?`))
+              handleDeleteProduct(editingProduct.id, editingProduct.name)
+          }}
+          onClose={() => setEditingProduct(null)}
+        />
       )}
 
-      {/* Audit Logs Modal */}
       {showLogsModal && (
-        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-surface-dark w-full max-w-lg rounded-3xl shadow-2xl border border-border-dark flex flex-col max-h-[85vh]">
-            <div className="flex justify-between items-center p-6 border-b border-border-dark shrink-0">
-              <div>
-                <h2 className="text-xl font-black text-white flex items-center gap-2">
-                  <ScrollText className="w-5 h-5 text-purple-400" /> Logs de Actividad
-                </h2>
-                <p className="text-xs text-text-muted mt-0.5">Últimas 2 semanas</p>
-              </div>
-              <button
-                onClick={() => setShowLogsModal(false)}
-                className="w-8 h-8 rounded-full bg-background-dark flex items-center justify-center text-text-secondary hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {logsLoading ? (
-                <div className="flex justify-center py-10">
-                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-400" />
-                </div>
-              ) : logs.length === 0 ? (
-                <p className="text-sm text-text-muted text-center py-10">
-                  No hay actividad registrada.
-                </p>
-              ) : (
-                logs.map((log) => (
-                  <div
-                    key={log.id}
-                    className="flex gap-3 p-3 bg-background-dark/60 border border-border-dark rounded-xl"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0 text-xs font-black text-purple-400">
-                      {log.user_name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-medium leading-snug">{log.action}</p>
-                      <p className="text-text-muted text-xs mt-0.5">
-                        <span className="text-primary font-bold">{log.user_name}</span>
-                        {' · '}
-                        {new Date(log.created_at).toLocaleString('es-AR', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: '2-digit',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
+        <AuditLogModal
+          logs={logs}
+          isLoading={logsLoading}
+          onClose={() => setShowLogsModal(false)}
+        />
       )}
 
-      {/* Cash Close Modal Dialog */}
       {cashCloseMode && (
-        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-surface-dark w-full max-w-sm rounded-3xl p-6 shadow-[0_0_50px_rgba(0,0,0,0.5)] border border-border-dark animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-center w-16 h-16 bg-primary/10 rounded-full mx-auto mb-4 border border-primary/20">
-              <ReceiptText className="w-8 h-8 text-primary" />
-            </div>
-
-            <h2 className="text-2xl font-black text-center text-white mb-1 tracking-tight">
-              Resumen de Caja
-            </h2>
-            <p className="text-center text-xs text-text-muted mb-1 font-mono">
-              {new Date().toLocaleDateString('es-AR', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-              })}
-            </p>
-            <p className="text-center text-[10px] text-text-muted/60 mb-6">
-              Turno hasta las{' '}
-              {new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-            </p>
-
-            <div className="space-y-3 mb-8">
-              {/* Sales */}
-              <div className="flex justify-between items-center p-4 bg-green-500/10 border border-green-500/20 rounded-2xl">
-                <div>
-                  <span className="block text-green-400 font-bold text-xs uppercase tracking-wider mb-0.5">
-                    Venta Bruta
-                  </span>
-                  <span className="text-green-500/60 text-[10px] font-medium">
-                    Pedidos completados
-                  </span>
-                </div>
-                <span className="text-green-400 font-black text-xl">
-                  ${cashSummary.totalSales.toFixed(2)}
-                </span>
-              </div>
-
-              {/* Losses */}
-              <div className="flex justify-between items-center p-4 bg-red-500/10 border border-red-500/20 rounded-2xl">
-                <div>
-                  <span className="block text-red-400 font-bold text-xs uppercase tracking-wider mb-0.5">
-                    Pérdidas
-                  </span>
-                  <span className="text-red-500/60 text-[10px] font-medium">
-                    Pedidos cancelados
-                  </span>
-                </div>
-                <span className="text-red-400 font-black text-xl">
-                  -${cashSummary.totalLosses.toFixed(2)}
-                </span>
-              </div>
-
-              {/* Net */}
-              <div className="pt-4 mt-2 border-t border-dashed border-border-dark flex justify-between items-end px-1">
-                <span className="text-text-secondary font-bold text-sm uppercase tracking-wide">
-                  Balance Neto
-                </span>
-                <span className="text-white font-black text-3xl tracking-tighter">
-                  ${(cashSummary.totalSales - cashSummary.totalLosses).toFixed(2)}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={handleResetDay}
-                className="w-full py-3.5 bg-primary text-white font-bold rounded-2xl hover:bg-orange-600 shadow-lg shadow-primary/20 transition-all flex items-center justify-center gap-2"
-              >
-                <Download className="w-4 h-4" /> Cerrar Turno y Descargar PDF
-              </button>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setCashCloseMode(false)}
-                  className="flex-1 py-3 bg-background-dark border border-border-dark text-text-muted font-bold hover:text-white rounded-2xl transition-all text-sm"
-                >
-                  Volver
-                </button>
-                <button
-                  onClick={handleDownload7DayPDF}
-                  className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-1.5 text-sm"
-                >
-                  <Download className="w-3.5 h-3.5" /> Últimos 7 días
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <CashCloseModal
+          summary={cashSummary}
+          onClose={() => setCashCloseMode(false)}
+          onConfirm={handleResetDay}
+          onDownload7Days={handleDownload7DayPDF}
+        />
       )}
+
+      {/* Download 7-day button always visible */}
+      <div className="shrink-0 flex justify-end mt-2">
+        <button
+          onClick={handleDownload7DayPDF}
+          className="bg-background-dark border border-border-dark hover:border-blue-500/50 text-white font-bold px-4 py-2 rounded-xl text-sm flex items-center gap-2 transition-all"
+        >
+          <Download className="w-4 h-4 text-blue-400" /> Historial 7 días (PDF)
+        </button>
+      </div>
     </div>
   )
 }
