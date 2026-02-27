@@ -14,7 +14,8 @@ import {
   MapPin,
   Undo2,
   Bike,
-  X
+  X,
+  Store
 } from 'lucide-react'
 
 type OrderStatus =
@@ -25,12 +26,14 @@ type OrderStatus =
   | 'delivered'
   | 'cancelled'
   | 'failed'
+  | 'picked_up'
 
 interface OrderItem {
   id: string
   product_id: string | null
   quantity: number
   subtotal: number | null
+  parent_item_id: string | null
   products?: { name: string } | null
 }
 
@@ -38,11 +41,15 @@ interface Order {
   id: string
   customer_name: string
   address_text: string | null
+  lat: number | null
+  lng: number | null
   status: OrderStatus
   total_amount: number | null
   created_at: string
   delivery_id: string | null
   notes: string | null
+  indicaciones: string | null
+  is_paid: boolean
   order_items?: OrderItem[]
 }
 
@@ -116,6 +123,26 @@ const TabButton = ({
 
 const HISTORY_RESET_KEY = 'cf_last_closed_at'
 
+// Build a tree of items: top-level items with their children (extras) attached
+function buildItemTree(items: OrderItem[]): (OrderItem & { extras: OrderItem[] })[] {
+  const parents = items.filter((i) => !i.parent_item_id)
+  return parents.map((parent) => ({
+    ...parent,
+    extras: items.filter((i) => i.parent_item_id === parent.id)
+  }))
+}
+
+// Address display helper
+function formatAddress(order: Order): string {
+  const hasGps = order.lat !== null && order.lng !== null
+  const hasText = !!order.address_text
+
+  if (hasText && hasGps) return `Ubicación por WhatsApp · ${order.address_text}`
+  if (hasText) return order.address_text!
+  if (hasGps) return 'Ubicación por GPS'
+  return 'Sin ubicación'
+}
+
 export default function DigitalComanda() {
   const [activeTab, setActiveTab] = useState<'pending' | 'ready' | 'history'>('pending')
   const [assigningOrder, setAssigningOrder] = useState<Order | null>(null)
@@ -186,7 +213,8 @@ export default function DigitalComanda() {
   const pendingOrders = orders.filter((o) => o.status === 'pending' || o.status === 'preparing')
   const readyOrders = orders.filter((o) => o.status === 'ready')
   const historyOrders = orders.filter((o) => {
-    if (!['shipping', 'delivered', 'cancelled', 'failed'].includes(o.status)) return false
+    if (!['shipping', 'delivered', 'cancelled', 'failed', 'picked_up'].includes(o.status))
+      return false
     if (lastClosedAt) return new Date(o.created_at) > new Date(lastClosedAt)
     return true
   })
@@ -196,7 +224,7 @@ export default function DigitalComanda() {
 
   return (
     <div className="flex flex-col w-full pb-8">
-      {/* Sticky Header + Tabs — single block to avoid scroll-through gap */}
+      {/* Sticky Header + Tabs */}
       <div className="sticky top-0 z-10 bg-background-dark">
         <div className="px-4 pt-4 pb-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -247,7 +275,7 @@ export default function DigitalComanda() {
         </div>
       </div>
 
-      {/* Cards — natural flow, parent main scrolls */}
+      {/* Cards */}
       <div className="flex flex-col gap-4 px-4 mt-4 pb-8">
         {isLoading && (
           <div className="flex justify-center py-10">
@@ -268,164 +296,225 @@ export default function DigitalComanda() {
           </div>
         )}
 
-        {filteredOrders.map((order) => (
-          <div
-            key={order.id}
-            className="bg-surface-dark rounded-2xl overflow-hidden border border-border-dark flex flex-col"
-          >
-            {/* Status Color Band */}
-            <div
-              className={`h-1.5 w-full ${
-                order.status === 'pending'
-                  ? 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]'
-                  : order.status === 'preparing'
-                    ? 'bg-orange-400'
-                    : order.status === 'ready'
-                      ? 'bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]'
-                      : 'bg-slate-600'
-              }`}
-            ></div>
+        {filteredOrders.map((order) => {
+          const itemTree = buildItemTree(order.order_items || [])
 
-            <div className="p-4 flex-1 flex flex-col gap-3">
-              {/* Top: Name + Status + Amount */}
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-lg font-black text-white leading-tight tracking-tight">
-                    {order.customer_name}
-                  </h3>
-                  <p className="text-xs text-text-muted font-mono bg-background-dark/50 px-2 py-0.5 rounded-md inline-block mt-1">
-                    {new Date(order.created_at).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </p>
-                </div>
-                <div className="flex flex-col items-end gap-1.5">
+          return (
+            <div
+              key={order.id}
+              className="bg-surface-dark rounded-2xl overflow-hidden border border-border-dark flex flex-col"
+            >
+              {/* Status Color Band */}
+              <div
+                className={`h-1.5 w-full ${
+                  order.status === 'pending'
+                    ? 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]'
+                    : order.status === 'preparing'
+                      ? 'bg-orange-400'
+                      : order.status === 'ready'
+                        ? 'bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]'
+                        : order.status === 'picked_up'
+                          ? 'bg-blue-500'
+                          : 'bg-slate-600'
+                }`}
+              ></div>
+
+              <div className="p-4 flex-1 flex flex-col gap-3">
+                {/* Top: Name + Status + Time */}
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-lg font-black text-white leading-tight tracking-tight">
+                      {order.customer_name}
+                    </h3>
+                    <p className="text-xs text-text-muted font-mono bg-background-dark/50 px-2 py-0.5 rounded-md inline-block mt-1">
+                      {new Date(order.created_at).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </p>
+                  </div>
                   <span className="bg-primary/10 text-primary border border-primary/20 text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-wider">
-                    {order.status}
+                    {order.status === 'picked_up' ? 'Retirado' : order.status}
                   </span>
-                  {order.total_amount != null && (
-                    <span className="text-sm font-bold text-green-400">${order.total_amount}</span>
+                </div>
+
+                {/* Products — main visual for the cook */}
+                {itemTree.length > 0 ? (
+                  <div className="bg-primary/5 border border-primary/30 rounded-2xl p-4 space-y-2">
+                    {itemTree.map((item) => (
+                      <div key={item.id}>
+                        <div className="flex items-baseline gap-3">
+                          <span className="text-2xl font-black text-primary leading-none shrink-0">
+                            {item.quantity}×
+                          </span>
+                          <span className="text-base font-bold text-white leading-tight">
+                            {item.products?.name ?? 'Producto'}
+                          </span>
+                          {item.subtotal != null && (
+                            <span className="ml-auto text-xs text-text-muted shrink-0">
+                              ${item.subtotal}
+                            </span>
+                          )}
+                        </div>
+                        {/* Extras (agregados) indented under parent */}
+                        {item.extras.map((extra) => (
+                          <div
+                            key={extra.id}
+                            className="ml-8 mt-1 flex items-baseline gap-2 text-yellow-300"
+                          >
+                            <span className="text-xs text-yellow-500">↳</span>
+                            <span className="text-xs font-semibold">
+                              {extra.quantity}× {extra.products?.name ?? 'Extra'}
+                            </span>
+                            {extra.subtotal != null && (
+                              <span className="ml-auto text-[10px] text-yellow-500/70">
+                                +${extra.subtotal}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="bg-background-dark/40 border border-dashed border-border-dark/50 rounded-2xl p-3">
+                    <p className="text-xs text-text-muted italic text-center">
+                      Sin detalle de productos
+                    </p>
+                  </div>
+                )}
+
+                {/* Notes */}
+                {order.notes && (
+                  <div className="flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-3 py-2">
+                    <span className="text-yellow-400 text-base shrink-0 mt-0.5">📝</span>
+                    <p className="text-sm text-yellow-300 font-medium leading-snug">
+                      {order.notes}
+                    </p>
+                  </div>
+                )}
+
+                {/* Address + Indicaciones */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-start gap-2">
+                    <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-text-muted" />
+                    <span className="text-xs text-text-muted">{formatAddress(order)}</span>
+                  </div>
+                  {order.indicaciones && (
+                    <div className="ml-5 text-xs text-text-muted/80 italic">
+                      "{order.indicaciones}"
+                    </div>
+                  )}
+                </div>
+
+                {/* TOTAL — prominent at bottom */}
+                {order.total_amount != null && (
+                  <div className="border-t border-border-dark pt-3 flex items-center justify-between">
+                    <span className="text-xs font-bold text-text-muted uppercase tracking-wider">
+                      Total
+                    </span>
+                    <span className="text-xl font-black text-green-400">${order.total_amount}</span>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="border-t border-border-dark pt-3 flex gap-3">
+                  {activeTab === 'pending' && (
+                    <>
+                      {order.status === 'pending' ? (
+                        <button
+                          onClick={() => handleUpdateStatus(order.id, 'preparing')}
+                          disabled={updateStatusMutation.isPending}
+                          className="flex-1 h-11 rounded-xl border border-border-dark text-white font-bold text-sm hover:bg-white/5 transition-colors flex items-center justify-center gap-2"
+                        >
+                          <ChefHat className="w-4 h-4 text-text-muted" /> Preparando
+                        </button>
+                      ) : (
+                        <button
+                          disabled
+                          className="flex-1 h-11 rounded-xl bg-background-dark text-text-secondary font-bold text-sm cursor-not-allowed opacity-50 flex items-center justify-center gap-2 border border-border-dark"
+                        >
+                          <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse"></div>
+                          En preparación
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleUpdateStatus(order.id, 'ready')}
+                        disabled={updateStatusMutation.isPending}
+                        className="flex-1 h-11 rounded-xl bg-primary text-white font-bold text-sm hover:bg-orange-600 transition-colors shadow-lg shadow-primary/20 flex items-center justify-center gap-2"
+                      >
+                        <CheckCircle2 className="w-4 h-4" /> ¡Listo!
+                      </button>
+                    </>
+                  )}
+
+                  {activeTab === 'ready' && (
+                    <div className="flex flex-col gap-2 w-full">
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => handleUpdateStatus(order.id, 'pending')}
+                          disabled={updateStatusMutation.isPending}
+                          title="Regresar a Pendientes"
+                          className="h-11 px-4 rounded-xl border border-border-dark text-text-secondary hover:text-white hover:bg-white/5 transition-colors flex items-center justify-center"
+                        >
+                          <Undo2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setAssigningOrder(order)}
+                          disabled={updateStatusMutation.isPending}
+                          className="flex-1 h-11 rounded-xl bg-green-500 text-white font-bold text-sm hover:bg-green-600 transition-colors shadow-[0_0_20px_rgba(34,197,94,0.3)] flex items-center justify-center gap-2"
+                        >
+                          <Bike className="w-4 h-4" /> Asignar Delivery
+                        </button>
+                      </div>
+                      {/* Pickup button */}
+                      <button
+                        onClick={() => handleUpdateStatus(order.id, 'picked_up')}
+                        disabled={updateStatusMutation.isPending}
+                        className="w-full h-10 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-300 font-bold text-sm hover:bg-blue-500/25 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Store className="w-4 h-4" /> Retiró en Local
+                      </button>
+                    </div>
+                  )}
+
+                  {activeTab === 'history' && (
+                    <div className="flex flex-col gap-2 w-full">
+                      <div className="flex gap-3">
+                        {/* Revert to ready — only for picked_up orders */}
+                        {order.status === 'picked_up' && (
+                          <button
+                            onClick={() => handleUpdateStatus(order.id, 'ready')}
+                            disabled={updateStatusMutation.isPending}
+                            className="h-11 px-4 rounded-xl border border-blue-500/30 text-blue-300 hover:bg-blue-500/10 transition-colors flex items-center justify-center gap-2 text-sm font-bold"
+                          >
+                            <Undo2 className="w-4 h-4" /> Regresar a Listos
+                          </button>
+                        )}
+                        <button
+                          disabled
+                          className="flex-1 h-11 rounded-xl bg-background-dark border border-border-dark text-text-muted font-bold text-sm cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          {order.status === 'picked_up'
+                            ? 'Retirado en local'
+                            : 'Cerrado / Finalizado'}
+                        </button>
+                        {order.status === 'shipping' && (
+                          <button
+                            onClick={() => setAssigningOrder(order)}
+                            className="h-11 px-4 rounded-xl border border-primary/40 text-primary hover:bg-primary/10 transition-colors flex items-center justify-center gap-2 text-sm font-bold"
+                          >
+                            <RotateCcw className="w-4 h-4" /> Reasignar
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
-
-              {/* ===== PRODUCTS — Main Visual for the Cook ===== */}
-              {order.order_items && order.order_items.length > 0 ? (
-                <div className="bg-primary/5 border border-primary/30 rounded-2xl p-4 space-y-2">
-                  {order.order_items.map((item) => (
-                    <div key={item.id} className="flex items-baseline gap-3">
-                      <span className="text-2xl font-black text-primary leading-none shrink-0">
-                        {item.quantity}×
-                      </span>
-                      <span className="text-base font-bold text-white leading-tight">
-                        {item.products?.name ?? 'Producto'}
-                      </span>
-                      {item.subtotal != null && (
-                        <span className="ml-auto text-xs text-text-muted shrink-0">
-                          ${item.subtotal}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="bg-background-dark/40 border border-dashed border-border-dark/50 rounded-2xl p-3">
-                  <p className="text-xs text-text-muted italic text-center">
-                    Sin detalle de productos
-                  </p>
-                </div>
-              )}
-
-              {/* Notes */}
-              {order.notes && (
-                <div className="flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-3 py-2">
-                  <span className="text-yellow-400 text-base shrink-0 mt-0.5">📝</span>
-                  <p className="text-sm text-yellow-300 font-medium leading-snug">{order.notes}</p>
-                </div>
-              )}
-
-              {/* Address */}
-              <div className="flex items-start gap-2">
-                <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-text-muted" />
-                <span className="text-xs text-text-muted">
-                  {order.address_text || 'Retiro en Local'}
-                </span>
-              </div>
-
-              {/* Actions */}
-              <div className="border-t border-border-dark pt-3 flex gap-3">
-                {activeTab === 'pending' && (
-                  <>
-                    {order.status === 'pending' ? (
-                      <button
-                        onClick={() => handleUpdateStatus(order.id, 'preparing')}
-                        disabled={updateStatusMutation.isPending}
-                        className="flex-1 h-11 rounded-xl border border-border-dark text-white font-bold text-sm hover:bg-white/5 transition-colors flex items-center justify-center gap-2"
-                      >
-                        <ChefHat className="w-4 h-4 text-text-muted" /> Preparando
-                      </button>
-                    ) : (
-                      <button
-                        disabled
-                        className="flex-1 h-11 rounded-xl bg-background-dark text-text-secondary font-bold text-sm cursor-not-allowed opacity-50 flex items-center justify-center gap-2 border border-border-dark"
-                      >
-                        <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse"></div>
-                        En preparación
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleUpdateStatus(order.id, 'ready')}
-                      disabled={updateStatusMutation.isPending}
-                      className="flex-1 h-11 rounded-xl bg-primary text-white font-bold text-sm hover:bg-orange-600 transition-colors shadow-lg shadow-primary/20 flex items-center justify-center gap-2"
-                    >
-                      <CheckCircle2 className="w-4 h-4" /> ¡Listo!
-                    </button>
-                  </>
-                )}
-
-                {activeTab === 'ready' && (
-                  <div className="flex gap-3 w-full">
-                    <button
-                      onClick={() => handleUpdateStatus(order.id, 'pending')}
-                      disabled={updateStatusMutation.isPending}
-                      title="Regresar a Pendientes"
-                      className="h-11 px-4 rounded-xl border border-border-dark text-text-secondary hover:text-white hover:bg-white/5 transition-colors flex items-center justify-center"
-                    >
-                      <Undo2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setAssigningOrder(order)}
-                      disabled={updateStatusMutation.isPending}
-                      className="flex-1 h-11 rounded-xl bg-green-500 text-white font-bold text-sm hover:bg-green-600 transition-colors shadow-[0_0_20px_rgba(34,197,94,0.3)] flex items-center justify-center gap-2"
-                    >
-                      <Bike className="w-4 h-4" /> Asignar Delivery
-                    </button>
-                  </div>
-                )}
-
-                {activeTab === 'history' && (
-                  <div className="flex gap-3 w-full">
-                    <button
-                      disabled
-                      className="flex-1 h-11 rounded-xl bg-background-dark border border-border-dark text-text-muted font-bold text-sm cursor-not-allowed flex items-center justify-center gap-2"
-                    >
-                      Cerrado / Finalizado
-                    </button>
-                    {order.status === 'shipping' && (
-                      <button
-                        onClick={() => setAssigningOrder(order)}
-                        className="h-11 px-4 rounded-xl border border-primary/40 text-primary hover:bg-primary/10 transition-colors flex items-center justify-center gap-2 text-sm font-bold"
-                      >
-                        <RotateCcw className="w-4 h-4" /> Reasignar
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Delivery Assignment Modal */}

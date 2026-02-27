@@ -22,6 +22,8 @@ interface Order {
   lng: number | null
   status: string
   is_paid: boolean
+  total_amount: number | null
+  indicaciones: string | null
 }
 
 // A simple component to re-center the map when order coordinates change or when manually triggered
@@ -55,7 +57,9 @@ const fetchDeliveryOrders = async (): Promise<Order[]> => {
 
   const { data, error } = await supabase
     .from('orders')
-    .select('*')
+    .select(
+      'id, customer_name, address_text, lat, lng, status, is_paid, total_amount, indicaciones'
+    )
     .eq('status', 'shipping')
     .eq('delivery_id', userId)
 
@@ -217,7 +221,7 @@ export default function DeliveryModule() {
                 ? [activeOrder.lat, activeOrder.lng]
                 : deliveryProfile?.current_lat && deliveryProfile?.current_lng
                   ? [deliveryProfile.current_lat, deliveryProfile.current_lng]
-                  : [-27.0551, -65.3983] // Famaillá, Tucumán default fallback
+                  : [-27.0551, -65.3983]
             }
             zoom={13}
             style={{ height: '100%', width: '100%' }}
@@ -227,23 +231,23 @@ export default function DeliveryModule() {
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
               url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
             />
+            {/* Recenter to active order when selected */}
             {activeOrder?.lat && activeOrder?.lng && (
-              <>
-                <MapRecenter
-                  lat={activeOrder.lat}
-                  lng={activeOrder.lng}
-                  trigger={recenterTrigger}
-                />
-                <Marker position={[activeOrder.lat, activeOrder.lng]}>
+              <MapRecenter lat={activeOrder.lat} lng={activeOrder.lng} trigger={recenterTrigger} />
+            )}
+            {/* Show ALL order markers always */}
+            {orders.map((o) =>
+              o.lat && o.lng ? (
+                <Marker key={o.id} position={[o.lat, o.lng]}>
                   <Popup className="custom-popup">
-                    <strong className="text-slate-900 font-bold">
-                      {activeOrder.customer_name}
-                    </strong>{' '}
+                    <strong className="text-slate-900 font-bold">{o.customer_name}</strong>
                     <br />
-                    <span className="text-xs text-slate-500">{activeOrder.address_text}</span>
+                    <span className="text-xs text-slate-500">
+                      {o.address_text || 'Ubicación por GPS'}
+                    </span>
                   </Popup>
                 </Marker>
-              </>
+              ) : null
             )}
           </MapContainer>
         )}
@@ -290,14 +294,33 @@ export default function DeliveryModule() {
             <div className="w-16 h-1 bg-border-dark rounded-full mx-auto mb-6 opacity-30"></div>
 
             <div className="flex justify-between items-start mb-6">
-              <div className="pr-4 border-r border-border-dark/50">
+              <div className="pr-4 border-r border-border-dark/50 flex-1 min-w-0">
                 <h3 className="text-white font-black text-2xl tracking-tight leading-none mb-3">
                   {activeOrder.customer_name}
                 </h3>
-                <p className="text-slate-200 text-lg font-medium flex items-start gap-2 leading-tight pr-2">
+                <p className="text-slate-200 text-base font-medium flex items-start gap-2 leading-tight">
                   <MapPin className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-                  <span>{activeOrder.address_text || 'Sin dirección específica'}</span>
+                  <span>
+                    {activeOrder.address_text ||
+                      (activeOrder.lat ? 'Ubicación por GPS' : 'Sin ubicación registrada')}
+                  </span>
                 </p>
+                {activeOrder.indicaciones && (
+                  <p className="text-sm text-text-muted italic mt-1 ml-7">
+                    "{activeOrder.indicaciones}"
+                  </p>
+                )}
+                {/* Total amount — only when not paid */}
+                {!activeOrder.is_paid && activeOrder.total_amount != null && (
+                  <div className="mt-3 ml-0 flex items-center gap-2">
+                    <span className="text-xs font-bold text-red-400 uppercase tracking-wider">
+                      A cobrar
+                    </span>
+                    <span className="text-3xl font-black text-red-300 tracking-tighter">
+                      ${activeOrder.total_amount}
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="flex flex-col items-end pl-4">
                 <span
